@@ -1,0 +1,22 @@
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "lib",
+    srcs = ["src/lib.rs"],
+    crate_name = "basic_bazel_example_rust",
+    visibility = ["//visibility:public"],
+    deps = ["@crates//:uuid"],
+)
+
+rust_binary(
+    name = "hello",
+    srcs = ["src/main.rs"],
+    deps = [":lib"],
+)
+
+rust_test(
+    name = "lib_test",
+    crate = ":lib",
+)

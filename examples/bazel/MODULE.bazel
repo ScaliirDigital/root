@@ -1,0 +1,90 @@
+module(
+    name = "basic_bazel_example",
+    version = "0.1.0",
+)
+
+# ---------------------------------------------------------------
+# Dependencies (alphabetical)
+# ---------------------------------------------------------------
+bazel_dep(name = "gazelle", version = "0.47.0", dev_dependency = True)
+
+bazel_dep(name = "llvm", version = "0.7.6")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "protobuf", version = "34.1")
+bazel_dep(name = "rules_cc", version = "0.2.18")
+bazel_dep(name = "rules_go", version = "0.60.0")
+bazel_dep(name = "rules_proto_grpc_go", version = "5.8.0")
+bazel_dep(name = "rules_python", version = "2.0.0")
+bazel_dep(name = "rules_rs", version = "0.0.68")
+bazel_dep(name = "rules_rust_prost", version = "0.70.0")
+
+include("//third_party:deps.MODULE.bazel")
+include("//go:deps.MODULE.bazel")
+include("//python:deps.MODULE.bazel")
+
+# Bazel 9 compatibility: explicitly pin rules_android via single_version_override
+# even though it's only pulled transitively by protobuf for Java/Android proto
+# support (which we don't use). Without this override, the Android SDK toolchain
+# auto-registered by rules_android resolves before @local_config_platform is
+# visible, causing build failures.
+single_version_override(
+    module_name = "rules_android",
+    version = "0.7.1",
+)
+
+# ---------------------------------------------------------------
+# Go
+# ---------------------------------------------------------------
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(
+    name = "go_sdk",
+    version = "1.26.2",
+)
+use_repo(go_sdk, "go_toolchains")
+
+# ---------------------------------------------------------------
+# Rust
+# ---------------------------------------------------------------
+rust_toolchains = use_extension("@rules_rs//rs/toolchains:module_extension.bzl", "toolchains")
+rust_toolchains.toolchain(
+    edition = "2024",
+    version = "1.92.0",
+)
+use_repo(rust_toolchains, "default_rust_toolchains")
+
+rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
+use_repo(rules_rust, "rules_rust")
+
+crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lock = "//rust:Cargo.lock",
+    cargo_toml = "//rust:Cargo.toml",
+    platform_triples = [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+    ],
+)
+use_repo(crate, "crates")
+
+# ---------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.13",
+)
+use_repo(python, "python_3_13", "python_versions")
+
+# ---------------------------------------------------------------
+# Toolchains (central registration)
+# ---------------------------------------------------------------
+register_toolchains(
+    "@default_rust_toolchains//:all",
+    "@go_toolchains//:all",
+    "@llvm//toolchain:all",
+    "@python_3_13//:all",
+)
