@@ -4,5 +4,7 @@
   "initialVersions": {
     "@scale.digital/astro-bun": "0.0.0"
   },
-  "changesets": []
+  "changesets": [
+    "dark-coins-tan"
+  ]
 }
