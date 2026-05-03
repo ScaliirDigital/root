@@ -1,6 +1,6 @@
 {
   "name": "@scale.digital/astro-bun",
-  "version": "0.1.0-rc.0",
+  "version": "0.1.0",
   "description": "A native Bun adapter for Astro 6 — runs SSR, hybrid, and static sites directly on Bun.serve",
   "keywords": [
     "astro",
