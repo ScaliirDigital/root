@@ -27,20 +27,16 @@
       - any-glob-to-any-file:
           - '**/*.md'
           - '**/*.mdx'
-      - all-globs-to-all-files:
-          - '!.github/**'
-          - '!examples/**'
 
 "topic: governance":
   - changed-files:
       - any-glob-to-any-file:
-          - '.github/**'
+          - '.github/ISSUE_TEMPLATE/**'
+          - '.github/PULL_REQUEST_TEMPLATE**'
+          - '.github/CONTRIBUTING.md'
           - '**/LICENSE'
           - '**/LICENSE.*'
           - 'LICENSE'
-      - all-globs-to-all-files:
-          - '!.github/workflows/**'
-          - '!.github/labeler.yaml'
 
 "topic: repository":
   - changed-files:
