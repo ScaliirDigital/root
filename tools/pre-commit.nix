@@ -24,6 +24,9 @@ _: {
     args = ["--maxkb=1000"];
   };
 
+  # Commit message
+  convco.enable = true;
+
   # Web
   biome = {
     enable = true;
