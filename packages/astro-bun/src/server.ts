@@ -56,9 +56,7 @@ if (config.cache) {
     imageEndpointRoute: config.imageEndpointRoute,
   });
   registerCache(cacheServer.cache);
-}
 
-if (cacheServer) {
   const shutdown = () => {
     cacheServer
       ?.shutdown()
@@ -110,10 +108,7 @@ export const server = Bun.serve({
         }
         headers.set('Vary', 'Accept-Encoding');
 
-        return new Response(Bun.file(servePath), {
-          status: 200,
-          headers,
-        });
+        return new Response(Bun.file(servePath), { status: 200, headers });
       }
 
       const file = Bun.file(join(clientDir, pathname));

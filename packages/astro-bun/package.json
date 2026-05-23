@@ -53,6 +53,7 @@
     "access": "public"
   },
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "build": "bun build ./src/index.ts ./src/server.ts ./src/preview.ts ./src/cache --outdir ./dist --target bun --external 'virtual:@scale.digital/astro-bun/config' --external astro",
     "types": "tsc -p tsconfig.build.json",
     "prepack": "bun run build && bun run types"
@@ -61,8 +62,7 @@
     "astro": "^6.3.0"
   },
   "devDependencies": {
-    "@types/bun": "1.3.13",
-    "@types/node": "25.6.0",
-    "typescript": "6.0.2"
+    "@types/bun": "1.3.14",
+    "typescript": "6.0.3"
   }
 }
