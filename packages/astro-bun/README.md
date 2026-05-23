@@ -6,11 +6,11 @@ A native Bun adapter for Astro 6 — runs SSR, hybrid, and static sites directly
 >
 > This adapter is in active development and is used in production by Scaliir Digital.
 >
-> Currently validated with Astro 6.2.0 using the Qwik Astro integration:
+> Currently validated with Astro 6.3.7 using the Qwik Astro integration:
 >
-> - `astro` 6.2.0
+> - `astro` 6.3.7
 > - `@qwik.dev/astro` 1.0.1
-> - `@qwik.dev/core` 2.0.0-beta.32
+> - `@qwik.dev/core` 2.0.0-beta.35
 >
 > Other Astro setups may work, but have not been validated yet.
 > The public API may change in minor versions until 1.0.
@@ -30,7 +30,7 @@ bun add @scale.digital/astro-bun
 
 Requirements:
 
-- Astro `^6.0.0`
+- Astro `^6.3.0`
 - Bun `>=1.3.0`
 
 Astro itself uses Node tooling at build time. Node `>=22.12` is required for `astro build`. The runtime is Bun-only.
