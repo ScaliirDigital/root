@@ -38,11 +38,11 @@ function getAdapter(): AstroAdapter {
   };
 }
 
-export interface CacheConfig {
+export type CacheConfig = {
   maxByteSize?: number;
   cacheDir?: string;
   warmOnInit?: boolean;
-}
+};
 
 type BunAdapterConfig = {
   staticCacheControl?: string;
