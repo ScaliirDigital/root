@@ -17,8 +17,11 @@ setGetEnv((key) => process.env[key]);
 
 // --- Auto-start ---
 const config = options as AdapterOptions;
+
+// Astro 6: createApp() loads the manifest
+// internally via the build-emitted entrypoint.
 const app = createApp();
-const logger = app.getAdapterLogger();
+const logger = app.adapterLogger;
 
 const ssrHandler = async (request: Request): Promise<Response> => {
   const routeData = app.match(request);
@@ -145,3 +148,8 @@ export const server = Bun.serve({
 });
 
 logger.info(`Server listening on http://${host}:${port}`);
+// Suppress noisy "Internal Warning: route cache overwritten" — upstream Astro
+// bug where the route cache is re-set on every SSR request for dynamic routes.
+// We can't filter just that one message via the logger API, so we drop the
+// log level to 'error' after our own startup info is printed.
+logger.options.level = 'error';
