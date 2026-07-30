@@ -1,0 +1,57 @@
+{
+  "lang": "de",
+  "has_xml": false,
+  "data": {
+    "number": "2026-0042",
+    "issued": "2026-07-30",
+    "due": "2026-08-13",
+    "currency": "EUR",
+    "period": { "from": "2026-07-01", "to": "2026-07-31" },
+    "buyer": {
+      "name": "An Unusually Long Company Name & Partners Ltd",
+      "address": {
+        "street": "123a Example Road",
+        "postcode": "54321",
+        "city": "Exampleton",
+        "country": "DE"
+      }
+    },
+    "lines": [
+      {
+        "name": "Development work, July 2026",
+        "quantity": "12",
+        "unit": "HUR",
+        "unit_price": "95.00",
+        "net": "1140.00",
+        "tax": { "category": "S", "rate": "19" }
+      },
+      {
+        "name": "Line item with & special characters, % and $ in the text",
+        "quantity": "1",
+        "unit": "H87",
+        "unit_price": "0.00",
+        "net": "0.00",
+        "tax": { "category": "S", "rate": "19" }
+      },
+      {
+        "name": "Operations & monitoring",
+        "quantity": "1",
+        "unit": "LS",
+        "unit_price": "149.50",
+        "net": "149.50",
+        "tax": { "category": "S", "rate": "19" }
+      }
+    ],
+    "totals": {
+      "net": "1289.50",
+      "tax": "245.01",
+      "gross": "1534.51",
+      "due": "1534.51",
+      "breakdown": [
+        { "category": "S", "rate": "19", "net": "1289.50", "tax": "245.01" }
+      ]
+    },
+    "terms": "Zahlbar innerhalb von 14 Tagen ohne Abzug.",
+    "note": "Some Note"
+  }
+}

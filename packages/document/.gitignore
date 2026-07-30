@@ -1,0 +1,10 @@
+# Build output.
+/target
+
+# Runtime state: whatever DOCUMENT_DATA_DIR points at when the server runs
+# without a bucket. Published templates and their manifests live here, so it is
+# a local store, not source.
+/data
+
+# Real credentials. `.env.example` is the documented shape and stays tracked.
+.env

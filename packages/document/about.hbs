@@ -1,0 +1,13 @@
+document bundles the following third-party crates. Their licenses are
+reproduced in full below.
+
+{{#each licenses}}
+================================================================================
+{{name}}
+
+used by: {{#each used_by}}{{#if @index}}, {{/if}}{{crate.name}}{{/each}}
+================================================================================
+
+{{text}}
+
+{{/each}}

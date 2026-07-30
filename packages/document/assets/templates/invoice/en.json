@@ -1,0 +1,17 @@
+{
+  "invoice": "Invoice",
+  "position": "Item",
+  "quantity": "Quantity",
+  "unit_price": "Unit price",
+  "amount": "Amount",
+  "net": "Net",
+  "vat": "VAT",
+  "total": "Total",
+  "reverse_charge": "Reverse charge applies.",
+  "recipient_vat_id": "Recipient VAT ID",
+  "contact": "Contact",
+  "bank_details": "Bank details",
+  "page": "Page",
+  "of": "of",
+  "vat_id": "VAT ID"
+}
