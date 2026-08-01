@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------
+# External dependencies
+# ---------------------------------------------------------------
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "googleapis",
+    build_file = "//third_party:googleapis.BUILD.bazel",
+    integrity = "sha256-lYS3rCHeWzGDL6+Cf4mGcc3LA0vVV6Nuo+f8B+ZXHcs=",
+    strip_prefix = "googleapis-common-protos-1_3_1",
+    urls = ["https://github.com/googleapis/googleapis/archive/refs/tags/common-protos-1_3_1.tar.gz"],
+)
+
+http_archive(
+    name = "usockets",
+    build_file = "//third_party:usockets.BUILD.bazel",
+    sha256 = "d14d2efe1df767dbebfb8d6f5b52aa952faf66b30c822fbe464debaa0c5c0b17",
+    strip_prefix = "uSockets-0.8.8",
+    urls = ["https://github.com/uNetworking/uSockets/archive/refs/tags/v0.8.8.tar.gz"],
+)
+
+http_archive(
+    name = "uwebsockets",
+    build_file = "//third_party:uwebsockets.BUILD.bazel",
+    sha256 = "9884f7bce0d34c776d450f1a1f31858aaced74c4454f2758543ed557df07d1e0",
+    strip_prefix = "uWebSockets-20.77.0",
+    urls = ["https://github.com/uNetworking/uWebSockets/archive/refs/tags/v20.77.0.tar.gz"],
+)

@@ -1,0 +1,33 @@
+load("@python_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+exports_files([
+    "deps.MODULE.bazel",
+    "pyproject.toml",
+    "requirements_lock.txt",
+    "uv.lock",
+])
+
+py_library(
+    name = "lib",
+    srcs = ["src/main.py"],
+    imports = ["src"],
+    visibility = ["//visibility:public"],
+    deps = [
+        requirement("rich"),
+    ],
+)
+
+py_binary(
+    name = "hello",
+    srcs = ["src/main.py"],
+    main = "src/main.py",
+    deps = [":lib"],
+)
+
+py_test(
+    name = "hello_test",
+    srcs = ["src/main_test.py"],
+    main = "src/main_test.py",
+    deps = [":lib"],
+)

@@ -1,0 +1,20 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_test")
+
+cc_binary(
+    name = "hello",
+    srcs = ["src/main.cc"],
+)
+
+cc_test(
+    name = "hello_test",
+    srcs = ["src/hello_test.cc"],
+)
+
+cc_binary(
+    name = "uwebsockets_server",
+    srcs = ["src/uwebsockets_server.cc"],
+    copts = ["-std=c++20"],
+    deps = [
+        "@uwebsockets",
+    ],
+)

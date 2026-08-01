@@ -1,0 +1,6 @@
+exports_files([
+    "deps.MODULE.bazel",
+    "googleapis.BUILD.bazel",
+    "usockets.BUILD.bazel",
+    "uwebsockets.BUILD.bazel",
+])

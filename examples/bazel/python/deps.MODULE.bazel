@@ -1,0 +1,10 @@
+# ---------------------------------------------------------------
+# Python external dependencies
+# ---------------------------------------------------------------
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "python_deps",
+    python_version = "3.13",
+    requirements_lock = "//python:requirements_lock.txt",
+)
+use_repo(pip, "python_deps")

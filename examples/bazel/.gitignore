@@ -1,0 +1,16 @@
+# Bazel
+/.bazel/
+/bazel-*
+.bazelrc.user
+
+# Bazelisk
+.bazeliskrc
+
+# Build / cache noise
+*.log
+*.tmp
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

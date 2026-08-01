@@ -1,0 +1,83 @@
+# ============================================================
+# Common (applies to build, test, run, query, …)
+# ============================================================
+common --enable_bzlmod
+common --color=yes
+common --curses=yes
+common --show_timestamps
+
+# ============================================================
+# Build
+# ============================================================
+# Hermetic action environment (prevents leaks from user PATH/HOME)
+build --incompatible_strict_action_env
+
+# Hermetic Java toolchain (required by protobuf, rules_jvm_external, etc.)
+build --java_runtime_version=remotejdk_21
+build --tool_java_runtime_version=remotejdk_21
+
+# C++20 as default — compatible with rules_cc 0.2.x and modern toolchains
+build --cxxopt=-std=c++20
+build --host_cxxopt=-std=c++20
+
+# Silence warnings from external repos — we can't fix them anyway
+build --per_file_copt=external/.*@-w
+build --host_per_file_copt=external/.*@-w
+
+# Local caches — drastically speeds up rebuilds
+build --disk_cache=~/.cache/bazel/disk
+build --repository_cache=~/.cache/bazel/repo
+
+# Keep symlinks out of the repo root (cleaner `git status`)
+build --symlink_prefix=.bazel/
+
+# ============================================================
+# Bazel 9 performance features
+# ============================================================
+# Use prebuilt protoc binary instead of compiling protobuf from source
+build --@protobuf//bazel/toolchains:prefer_prebuilt_protoc
+
+# Reuse sandbox directories across actions — major IO reduction
+build --reuse_sandbox_directories
+
+# Strip configuration-specific output paths to maximize disk cache hits
+build --experimental_output_paths=strip
+
+# Pipelined Rust compilation — 10-30% faster builds on larger crate graphs
+build --@rules_rust//rust/settings:pipelined_compilation=True
+
+# ============================================================
+# Test
+# ============================================================
+test --test_output=errors
+test --test_summary=detailed
+test --test_verbose_timeout_warnings
+
+# ============================================================
+# CI profile — invoke with `--config=ci`
+# ============================================================
+build:ci --noshow_progress
+build:ci --show_timestamps
+build:ci --announce_rc
+build:ci --keep_going
+build:ci --verbose_failures
+test:ci  --test_output=errors
+test:ci  --keep_going
+
+# ============================================================
+# Debug profile — `--config=debug`
+# ============================================================
+build:debug --compilation_mode=dbg
+build:debug --strip=never
+
+# ============================================================
+# Release profile — `--config=release`
+# ============================================================
+build:release --compilation_mode=opt
+build:release --strip=always
+
+# ============================================================
+# User overrides — not committed, per-developer customization
+# (e.g. remote_cache URLs, personal flags). File may be absent.
+# ============================================================
+try-import %workspace%/.bazelrc.user

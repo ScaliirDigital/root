@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "lib",
+    srcs = ["src/lib/lib.go"],
+    importpath = "example.com/basic/src/lib",
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "hello",
+    srcs = ["src/main/main.go"],
+    deps = [
+        ":lib",
+        "@com_github_google_uuid//:uuid",
+    ],
+)
+
+go_test(
+    name = "lib_test",
+    srcs = ["src/lib/lib_test.go"],
+    embed = [":lib"],
+)

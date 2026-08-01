@@ -62,5 +62,7 @@
     devShells = forEachSystem (system: (createSpace system).devShells);
     formatter = forEachSystem (system: (createSpace system).formatter);
     checks = forEachSystem (system: (createSpace system).checks);
+
+    templates = import ./tools/template.nix;
   };
 }

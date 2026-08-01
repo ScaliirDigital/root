@@ -1,0 +1,25 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "usockets",
+    srcs = glob([
+        "src/*.c",
+        "src/crypto/*.c",
+        "src/eventing/*.c",
+    ]),
+    hdrs = glob([
+        "src/**/*.h",
+    ]),
+    includes = ["src"],
+    copts = [
+        "-DLIBUS_NO_SSL",
+        "-std=c11",
+    ],
+    linkopts = select({
+        "@platforms//os:linux": ["-pthread"],
+        "//conditions:default": [],
+    }),
+    linkstatic = True,
+)
