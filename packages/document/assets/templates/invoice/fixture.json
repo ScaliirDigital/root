@@ -1,0 +1,20 @@
+{
+  "seller": {
+    "name": "Example Company Ltd",
+    "address": {
+      "street": "1 Sample Street",
+      "postcode": "12345",
+      "city": "Sampleton",
+      "country": "DE"
+    },
+    "vat_id": "DE123456789",
+    "email": "billing@example.com",
+    "phone": "+49 30 123456"
+  },
+  "payment": {
+    "method": "58",
+    "iban": "DE02120300000000202051",
+    "bic": "BYLADEM1001",
+    "holder": "Example Company Ltd"
+  }
+}

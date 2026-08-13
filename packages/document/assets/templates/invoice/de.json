@@ -1,0 +1,17 @@
+{
+  "invoice": "Rechnung",
+  "position": "Position",
+  "quantity": "Menge",
+  "unit_price": "Einheitspreis",
+  "amount": "Betrag",
+  "net": "Netto",
+  "vat": "Umsatzsteuer",
+  "total": "Gesamt",
+  "reverse_charge": "Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge).",
+  "recipient_vat_id": "USt-IdNr. Empfänger",
+  "contact": "Kontakt",
+  "bank_details": "Bankverbindung",
+  "page": "Seite",
+  "of": "von",
+  "vat_id": "USt-IdNr."
+}

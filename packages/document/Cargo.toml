@@ -1,0 +1,103 @@
+[package]
+name = "document"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "BSD-3-Clause"
+description = "Deterministic PDF rendering as a service, with an embedded Typst engine"
+repository = "https://github.com/ScaliirDigital/root/tree/main/packages/document"
+readme = "README.md"
+keywords = ["pdf", "typst", "pdfa", "invoice", "zugferd"]
+categories = ["command-line-utilities", "web-programming::http-server"]
+include = [
+    "src/**/*.rs",
+    "tests/**/*.rs",
+    "assets/**",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+]
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
+# Same code as release, but keeps symbols for perf/flamegraph.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+
+[dependencies]
+# Typst allocates heavily during a compile, and musl's allocator roughly halves
+# throughput. Costs nothing on glibc, so it applies to every target.
+mimalloc = "0.1"
+
+# --- engine -----------------------------------------------------------------
+# Pinned exactly: a patch release that nudges layout would quietly break the
+# claim that `renderer` identifies the build a document came from.
+typst = "=0.15.1"
+typst-layout = "=0.15.1"
+typst-pdf = "=0.15.1"
+
+lopdf = "0.44"
+
+# --- service ----------------------------------------------------------------
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "process",
+    "signal",
+    "sync",
+    "time",
+    "io-util",
+] }
+tower-http = { version = "0.6", features = ["trace", "limit"] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "json",
+    "multipart",
+    "rustls",
+] }
+futures-util = { version = "0.3", default-features = false }
+
+# --- storage ----------------------------------------------------------------
+object_store = { version = "0.14", default-features = false, features = [
+    "aws",
+    "fs",
+] }
+lru = "0.18"
+
+# --- cli --------------------------------------------------------------------
+clap = { version = "4.6", features = ["derive"] }
+owo-colors = { version = "4", features = ["supports-colors"] }
+
+# --- data -------------------------------------------------------------------
+base64 = "0.22"
+blake3 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["formatting"] }
+rust_decimal = { version = "1.42.1", default-features = false, features = ["serde-str"] }
+
+# --- ops --------------------------------------------------------------------
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+async-trait = "0.1"
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.30", features = ["signal"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
