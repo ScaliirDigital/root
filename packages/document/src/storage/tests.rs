@@ -403,10 +403,8 @@ fn s3_build_accepts_session_token() {
         virtual_hosted_style: false,
         allow_http: true,
     };
-
-    let result = s3::build(config);
-
-    assert!(result.is_ok());
+    s3::build(config)
+        .unwrap_or_else(|error| panic!("failed to build S3 client with session token: {error:#?}"));
 }
 
 #[test]
@@ -440,9 +438,11 @@ fn s3_build_rejects_incomplete_credentials() {
         allow_http: false,
     };
 
-    let result = s3::build(config);
-
-    assert!(matches!(result, Err(s3::Error::IncompleteCredentials)));
+    match s3::build(config) {
+        Err(s3::Error::IncompleteCredentials) => {}
+        Err(error) => panic!("expected IncompleteCredentials, got: {error:#?}"),
+        Ok(_) => panic!("expected IncompleteCredentials, but S3 client was built"),
+    }
 }
 
 #[tokio::test]
@@ -458,9 +458,11 @@ async fn s3_connect_reports_unreachable_store() {
         allow_http: true,
     };
 
-    let result = s3::connect(config).await;
-
-    assert!(matches!(result, Err(s3::Error::Unreachable { .. })));
+    match s3::connect(config).await {
+        Err(s3::Error::Unreachable { .. }) => {}
+        Err(error) => panic!("expected Unreachable, got: {error:#?}"),
+        Ok(_) => panic!("expected Unreachable, but connection succeeded"),
+    }
 }
 
 // -----------------------------------------------------------------------------
