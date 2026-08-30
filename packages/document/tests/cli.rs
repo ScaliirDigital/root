@@ -1094,7 +1094,9 @@ fn compile_times_out() {
         r"
 #let sum = 0.0
 #for x in range(1, 10000000) {
-  sum += calc.sqrt(x)
+  for y in range(1, 10) {
+    sum += calc.sqrt(x * y)
+  }
 }
 #sum
 ",
