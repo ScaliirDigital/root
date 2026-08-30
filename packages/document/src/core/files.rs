@@ -160,6 +160,17 @@ fn directory_entry(
     })
 }
 
+fn entry_name<'a>(
+    name: &'a std::ffi::OsStr,
+    path: &std::path::Path,
+) -> Result<&'a str, FilesError> {
+    let Some(name) = name.to_str() else {
+        return Err(FilesError::IllegalPath(path.display().to_string()));
+    };
+
+    Ok(name)
+}
+
 fn collect_entries(
     root: &std::path::Path,
     directory: &std::path::Path,
@@ -171,9 +182,7 @@ fn collect_entries(
         let path = entry.path();
 
         let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            return Err(FilesError::IllegalPath(path.display().to_string()));
-        };
+        let name = entry_name(&name, &path)?;
 
         if name.starts_with('.') {
             continue;
@@ -470,7 +479,20 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn rejects_a_name_that_is_not_utf8() {
+    fn entry_name_rejects_non_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let name = std::ffi::OsStr::from_bytes(&[b'a', 0xff, b'.', b't', b'y', b'p']);
+        let path = std::path::Path::new(name);
+
+        let error = entry_name(name, path).expect_err("name is not utf-8");
+
+        assert!(error.to_string().contains("illegal virtual path"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn read_dir_rejects_non_utf8_entry() {
         use std::os::unix::ffi::OsStrExt;
 
         let root = tempfile::tempdir().expect("temporary directory");
