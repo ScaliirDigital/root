@@ -1,10 +1,13 @@
 {pkgs}: let
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
+  isMusl = pkgs.stdenv.hostPlatform.isMusl;
 
   target =
-    if isLinux
+    if isLinux && !isMusl
     then pkgs.pkgsStatic
     else pkgs;
+
+  buildTools = pkgs.buildPackages;
 
   canExecute =
     target.stdenv.buildPlatform.canExecute
@@ -26,20 +29,25 @@ in
     src = source;
     cargoLock.lockFile = "${source}/Cargo.lock";
 
-    env = {
-      AWS_LC_SYS_CMAKE_BUILDER = "0";
-      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-    };
+    env =
+      {
+        CARGO_BUILD_TARGET = target.stdenv.hostPlatform.rust.cargoShortTarget;
+        AWS_LC_SYS_CMAKE_BUILDER = "0";
+        SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+      }
+      // pkgs.lib.optionalAttrs target.stdenv.hostPlatform.isMusl {
+        RUSTFLAGS = "-C target-feature=+crt-static";
+      };
 
     stripAllList = ["bin"];
 
     nativeBuildInputs = [
-      target.buildPackages.file
+      buildTools.file
     ];
 
     nativeCheckInputs = pkgs.lib.optionals canExecute [
-      target.buildPackages.rustfs
-      target.buildPackages.curl
+      buildTools.rustfs
+      buildTools.curl
     ];
 
     doCheck = canExecute;
@@ -53,7 +61,13 @@ in
         "$out/bin/document" --help >/dev/null
       ''
       + pkgs.lib.optionalString isLinux ''
-        ${target.buildPackages.file}/bin/file "$out/bin/document" |
+        fileOutput="$(
+          ${buildTools.file}/bin/file \
+            "$out/bin/document"
+        )"
+
+        echo "$fileOutput"
+        echo "$fileOutput" |
           grep -E "statically linked|static-pie linked"
       '';
 

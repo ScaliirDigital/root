@@ -8,12 +8,24 @@
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    nix2container = {
+      url = "github:nlewo/nix2container";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
     self,
     nixpkgs,
     pre-commit-hooks,
+    nix2container,
+    rust-overlay,
     ...
   }: let
     systems = [
@@ -29,6 +41,15 @@
       pkgs = import nixpkgs {
         inherit system;
         config = {};
+      };
+
+      imageBuilder = import ./images/builder.nix {
+        inherit
+          nixpkgs
+          nix2container
+          rust-overlay
+          system
+          ;
       };
 
       config = {
@@ -67,11 +88,21 @@
       packages = {
         document = import ./packages/document/package.nix {inherit pkgs;};
       };
+
+      legacyPackages = {
+        image = {
+          document = imageBuilder.build {
+            package = ./packages/document/package.nix;
+            image = ./images/document.nix;
+          };
+        };
+      };
     };
   in {
     devShells = forEachSystem (system: (createSpace system).devShells);
     formatter = forEachSystem (system: (createSpace system).formatter);
     checks = forEachSystem (system: (createSpace system).checks);
     packages = forEachSystem (system: (createSpace system).packages);
+    legacyPackages = forEachSystem (system: (createSpace system).legacyPackages);
   };
 }
