@@ -23,7 +23,7 @@ type CacheDecision =
   | { status: 'miss' };
 
 export type ServerOptions = {
-  origin: (request: Request) => Promise<Response>;
+  origin: (request: Request, clientAddress?: string) => Promise<Response>;
   maxByteSize: number;
   cacheDir: string;
   buildId: string;
@@ -44,7 +44,7 @@ function parseDirective(header: string, name: string): number | undefined {
 function extractCacheableEntry(
   headers: [string, string][],
   status: number,
-  body: Uint8Array,
+  body: Uint8Array<ArrayBuffer>,
   now: number,
 ): CacheEntry | undefined {
   const ccHeader = headers.find(([n]) => n === 'cache-control')?.[1] ?? '';
@@ -120,14 +120,15 @@ type RenderResult = {
  */
 function renderAndCache(
   request: Request,
-  origin: (request: Request) => Promise<Response>,
+  origin: ServerOptions['origin'],
   store: ReturnType<typeof createCacheStore>,
   cacheKey: string,
   initialStatus: CacheStatus,
   imageEndpointRoute: string,
   now: () => number,
+  clientAddress?: string,
 ): RenderResult {
-  const done = origin(request).then((response) => {
+  const done = origin(request, clientAddress).then((response) => {
     const clone = response.clone();
     const headers: [string, string][] = Array.from(clone.headers.entries());
 
@@ -186,7 +187,11 @@ export function createCacheServer(
 
   const now = () => deps.clock.now();
 
-  const handler = (async (request: Request, cacheKey: string) => {
+  const handler = (async (
+    request: Request,
+    cacheKey: string,
+    clientAddress?: string,
+  ) => {
     const decision = classifyEntry(await store.get(cacheKey), now());
 
     if (decision.status === 'hit') {
@@ -196,6 +201,7 @@ export function createCacheServer(
     if (decision.status === 'stale') {
       if (!revalidationsInFlight.has(cacheKey)) {
         revalidationsInFlight.add(cacheKey);
+        // SWR revalidation
         const result = renderAndCache(
           new Request(request.url, request),
           origin,
@@ -204,6 +210,7 @@ export function createCacheServer(
           'STALE',
           imageEndpointRoute,
           now,
+          clientAddress,
         );
         result.entry
           .catch(() => {})
@@ -219,6 +226,7 @@ export function createCacheServer(
     // Miss or expired — coalesce concurrent renders for the same key.
     const pending = rendersInFlight.get(cacheKey);
     if (!pending) {
+      // Cache miss
       const result = renderAndCache(
         request,
         origin,
@@ -227,6 +235,7 @@ export function createCacheServer(
         'MISS',
         imageEndpointRoute,
         now,
+        clientAddress,
       );
       rendersInFlight.set(cacheKey, result.entry);
       result.entry.finally(() => rendersInFlight.delete(cacheKey));
@@ -237,7 +246,7 @@ export function createCacheServer(
     if (cached) return responseFromEntry(cached, 'MISS');
 
     // Not cacheable — direct origin call.
-    const response = await origin(request);
+    const response = await origin(request, clientAddress);
     response.headers.set(CACHE_HEADER, 'BYPASS');
     return response;
   }) as CacheServer;
