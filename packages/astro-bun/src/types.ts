@@ -29,7 +29,7 @@ export type CacheOptions = {
 
 /** A cached SSR response with timing metadata for fresh/stale/expired checks. */
 export type CacheEntry = {
-  body: Uint8Array;
+  body: Uint8Array<ArrayBuffer>;
   headers: [string, string][];
   status: number;
   cachedAt: number;
@@ -56,7 +56,11 @@ export type CacheControl = {
 
 /** Caching request handler with shutdown and on-demand expiration. */
 export type CacheServer = {
-  (request: Request, cacheKey: string): Promise<Response>;
+  (
+    request: Request,
+    cacheKey: string,
+    clientAddress?: string,
+  ): Promise<Response>;
   shutdown: () => Promise<void>;
   cache: CacheControl;
 };

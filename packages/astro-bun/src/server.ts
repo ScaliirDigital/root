@@ -23,12 +23,24 @@ const config = options as AdapterOptions;
 const app = createApp();
 const logger = app.adapterLogger;
 
-const ssrHandler = async (request: Request): Promise<Response> => {
+const ssrHandler = async (
+  request: Request,
+  clientAddress?: string,
+): Promise<Response> => {
   const routeData = app.match(request);
+
   if (!routeData) {
-    return app.render(request, { addCookieHeader: true });
+    return app.render(request, {
+      addCookieHeader: true,
+      clientAddress,
+    });
   }
-  return app.render(request, { addCookieHeader: true, routeData });
+
+  return app.render(request, {
+    addCookieHeader: true,
+    routeData,
+    clientAddress,
+  });
 };
 
 // Resolve paths at runtime relative to this entrypoint file.
@@ -79,10 +91,11 @@ const host =
 export const server = Bun.serve({
   port,
   hostname: host,
-  async fetch(request) {
+  async fetch(request, server) {
     const url = new URL(request.url);
     const pathname = decodeURIComponent(url.pathname);
     const acceptEncoding = request.headers.get('accept-encoding') ?? '';
+    const clientAddress = server.requestIP(request)?.address;
 
     if (request.method === 'GET' || request.method === 'HEAD') {
       const meta = staticManifest.get(pathname);
@@ -130,7 +143,7 @@ export const server = Bun.serve({
     }
 
     if (!cacheServer || request.method !== 'GET') {
-      const response = await ssrHandler(request);
+      const response = await ssrHandler(request, clientAddress);
       response.headers.set(CACHE_HEADER, 'BYPASS');
       return response;
     }
@@ -138,7 +151,7 @@ export const server = Bun.serve({
     const cacheKey = pathname.startsWith(config.imageEndpointRoute)
       ? buildImageCacheKey(pathname, url.searchParams)
       : pathname;
-    return cacheServer(request, cacheKey);
+    return cacheServer(request, cacheKey, clientAddress);
   },
 });
 
