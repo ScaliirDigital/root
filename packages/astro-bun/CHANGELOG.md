@@ -1,5 +1,11 @@
 # @scale.digital/astro-bun
 
+## 0.1.2
+
+### Patch Changes
+
+- [#55](https://github.com/ScaliirDigital/root/pull/55) [`1630831`](https://github.com/ScaliirDigital/root/commit/16308317c7d5150616ec6b50ee1b61572adee378) Thanks [@SchahinRohani](https://github.com/SchahinRohani)! - Support `Astro.clientAddress` using Bun's direct connection IP across SSR and cache rendering paths.
+
 ## 0.1.1
 
 ### Patch Changes
