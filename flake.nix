@@ -75,6 +75,11 @@
 
           # Web tooling
           bun
+
+          # Workflow tooling
+          actionlint
+          shellcheck
+          zizmor
         ];
 
         shellHook = ''

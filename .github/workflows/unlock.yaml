@@ -1,6 +1,7 @@
 name: Unlock
 
-on:
+# Only updates metadata for the tested PR commit; no PR code or artifacts are executed.
+on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: ["Pull Request"]
     types: [completed]
@@ -17,8 +18,7 @@ jobs:
     steps:
       - name: Generate App Token
         id: app-token
-        uses: >- # https://github.com/actions/create-github-app-token/releases/tag/v3.1.1
-          actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
           client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -28,26 +28,35 @@ jobs:
 
       - name: Find PR number
         id: pr
-        uses: >- # https://github.com/actions/github-script/releases/tag/v9.0.0
-          actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const { data: prs } = await github.rest.pulls.list({
+            const run = context.payload.workflow_run;
+
+            const prs = await github.paginate(github.rest.pulls.list, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
-              head: `${context.payload.workflow_run.head_repository.owner.login}:${context.payload.workflow_run.head_branch}`,
+              base: 'main',
+              head: `${run.head_repository.owner.login}:${run.head_branch}`,
             });
-            if (prs.length === 0) {
-              core.setFailed('No matching open PR found');
+
+            const matches = prs.filter(pr =>
+              pr.head.repo?.full_name === run.head_repository.full_name &&
+              pr.head.sha === run.head_sha
+            );
+
+            if (matches.length !== 1) {
+              core.notice('No unique open PR matches the tested commit; skipping.');
               return;
             }
-            return prs[0].number;
+
+            return matches[0].number;
 
       - name: Add ready-for-review label
-        uses: >- # https://github.com/actions/github-script/releases/tag/v9.0.0
-          actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        if: steps.pr.outputs.result != '' && steps.pr.outputs.result != 'null'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR: ${{ steps.pr.outputs.result }}
         with:
@@ -61,8 +70,8 @@ jobs:
             });
 
       - name: Set commit status
-        uses: >- # https://github.com/actions/github-script/releases/tag/v9.0.0
-          actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        if: steps.pr.outputs.result != '' && steps.pr.outputs.result != 'null'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
