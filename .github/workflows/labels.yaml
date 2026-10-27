@@ -1,6 +1,7 @@
 name: Labels
 
-on:
+# Only labels PRs using trusted configuration; never executes PR code.
+on: # zizmor: ignore[dangerous-triggers]
   pull_request_target:
     types: [opened, synchronize, reopened]
 
@@ -16,15 +17,15 @@ jobs:
     steps:
       - name: Generate App Token
         id: app-token
-        uses: >- # https://github.com/actions/create-github-app-token/releases/tag/v3.1.1
-          actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
           client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
 
       - name: Apply labels
-        uses: >- # https://github.com/actions/labeler/releases/tag/v6.0.1
-          actions/labeler@634933edcd8ababfe52f92936142cc22ac488b1b
+        uses: actions/labeler@634933edcd8ababfe52f92936142cc22ac488b1b # v6.0.1
         with:
           repo-token: ${{ steps.app-token.outputs.token }}
           configuration-path: .github/labeler.yaml
