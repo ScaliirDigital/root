@@ -92,6 +92,7 @@
 
       packages = {
         document = import ./packages/document/package.nix {inherit pkgs;};
+        release = import ./tools/release/package.nix {inherit pkgs;};
       };
 
       legacyPackages = {

@@ -1,0 +1,8 @@
+[packages.astro-bun]
+language = "typescript"
+targets = ["npm"]
+
+[packages.document]
+language = "rust"
+targets = ["cargo", "binary"]
+containers = ["ghcr", "dockerhub"]
