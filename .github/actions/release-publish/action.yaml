@@ -1,0 +1,21 @@
+name: Publish GitHub release
+description: Finalize a prepared release after external publishing succeeds
+
+inputs:
+  package:
+    description: Package name
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Publish GitHub release
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+      run: |
+        set -euo pipefail
+
+        gh auth setup-git --hostname github.com
+
+        nix run .#release -- publish "--package=${PACKAGE}"

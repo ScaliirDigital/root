@@ -1,0 +1,19 @@
+name: Publish npm
+description: Install workspace dependencies and publish an npm package
+
+inputs:
+  package:
+    description: Package directory relative to the repository root
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: bun install --frozen-lockfile
+
+    - name: Publish package
+      shell: bash
+      working-directory: ${{ inputs.package }}
+      run: npm publish --access public --provenance

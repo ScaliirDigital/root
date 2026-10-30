@@ -5,52 +5,75 @@ on:
     branches:
       - main
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
 
 jobs:
-  publish:
-    name: Changesets
-    runs-on: ubuntu-latest
+  update:
+    name: Update
+    if: github.repository == 'ScaliirDigital/root'
+    runs-on: ubuntu-24.04
+
     permissions:
       contents: write
       pull-requests: write
-      id-token: write
+
+    outputs:
+      releases: ${{ steps.release.outputs.releases }}
+
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: NixOS/nix-installer-action@62c1943b776c509394b550f3f983adc14e9212d6
+        with:
+          installer-version: '2.35.4'
+          extra-conf: |
+            experimental-features = nix-command flakes
+
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3  # v3.1.1
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
           client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
 
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
-        with:
-          bun-version: 1.3.13
-
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Create Release Pull Request or Publish
-        id: changesets
-        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf  # v1.7.0
-        with:
-          version: bun run version
-          publish: bun run release
-          commit: "chore: release packages"
-          title: "chore: release packages"
+      - name: Update releases
+        id: release
+        uses: ./.github/actions/release-update # zizmor: ignore[self-repository]
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          NPM_CONFIG_PROVENANCE: true
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+
+  publish:
+    name: Publish
+    needs: update
+    if: >-
+      !cancelled() &&
+      github.repository == 'ScaliirDigital/root' &&
+      needs.update.outputs.releases != '' &&
+      needs.update.outputs.releases != '[]'
+
+    permissions:
+      contents: write
+      id-token: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ${{ fromJSON(needs.update.outputs.releases) }}
+
+    uses: ./.github/workflows/publish.yaml # zizmor: ignore[self-repository]
+    with:
+      release: ${{ toJSON(matrix.release) }}

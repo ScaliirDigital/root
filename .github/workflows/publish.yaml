@@ -1,0 +1,89 @@
+name: Publish
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: Release metadata as JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    name: npm
+    if: >-
+      github.repository == 'ScaliirDigital/root' &&
+      contains(fromJSON(inputs.release).targets, 'npm')
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ fromJSON(inputs.release).sha }}
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.2'
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Check npm release
+        id: check
+        uses: ./.github/actions/npm-check # zizmor: ignore[self-repository]
+        with:
+          package: ${{ fromJSON(inputs.release).path }}
+          version: ${{ fromJSON(inputs.release).version }}
+          sha: ${{ fromJSON(inputs.release).sha }}
+
+      - name: Publish package
+        if: steps.check.outputs.publish == 'true'
+        uses: ./.github/actions/npm-publish # zizmor: ignore[self-repository]
+        with:
+          package: ${{ fromJSON(inputs.release).path }}
+
+  release:
+    name: GitHub Release
+    needs: npm
+    if: needs.npm.result == 'success'
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ fromJSON(inputs.release).sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: NixOS/nix-installer-action@62c1943b776c509394b550f3f983adc14e9212d6
+        with:
+          installer-version: '2.35.4'
+          extra-conf: |
+            experimental-features = nix-command flakes
+
+      - name: Publish GitHub release
+        uses: ./.github/actions/release-publish # zizmor: ignore[self-repository]
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        with:
+          package: ${{ fromJSON(inputs.release).package }}

@@ -1,0 +1,108 @@
+name: Check npm release
+description: Verify the release commit, package version and npm registry state
+
+inputs:
+  package:
+    description: Package directory
+    required: true
+  version:
+    description: Expected release version
+    required: true
+  sha:
+    description: Expected release commit
+    required: true
+
+outputs:
+  publish:
+    description: Whether the version needs publication
+    value: ${{ steps.check.outputs.publish }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check release commit
+      shell: bash
+      env:
+        RELEASE_SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+
+        actual="$(git rev-parse HEAD)"
+
+        if [[ "$actual" != "$RELEASE_SHA" ]]; then
+          echo "Checkout does not match release commit: $RELEASE_SHA" >&2
+          exit 1
+        fi
+
+    - name: Check package version
+      id: package
+      shell: bash
+      working-directory: ${{ inputs.package }}
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        node --input-type=module <<'JS'
+        import { appendFileSync, readFileSync } from 'node:fs';
+
+        const { name, version } = JSON.parse(
+          readFileSync('package.json', 'utf8'),
+        );
+
+        if (typeof name !== 'string' || !name || /[\r\n]/.test(name)) {
+          throw new Error('Invalid npm package name');
+        }
+
+        if (version !== process.env.RELEASE_VERSION) {
+          throw new Error(
+            `Release version ${process.env.RELEASE_VERSION} does not match package version ${version}`,
+          );
+        }
+
+        appendFileSync(process.env.GITHUB_OUTPUT, `name=${name}\n`);
+        console.log(`Verified ${name}@${version}`);
+        JS
+
+    - name: Check npm registry
+      id: check
+      shell: bash
+      env:
+        PACKAGE_NAME: ${{ steps.package.outputs.name }}
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        node --input-type=module <<'JS'
+        import { appendFileSync } from 'node:fs';
+
+        const name = process.env.PACKAGE_NAME;
+        const version = process.env.RELEASE_VERSION;
+        const url =
+          `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
+
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        let publish;
+
+        if (response.status === 404) {
+          publish = true;
+        } else if (response.ok) {
+          const existing = await response.json();
+
+          if (existing.name !== name || existing.version !== version) {
+            throw new Error('Unexpected npm registry response');
+          }
+
+          publish = false;
+        } else {
+          throw new Error(`npm registry returned HTTP ${response.status}`);
+        }
+
+        appendFileSync(process.env.GITHUB_OUTPUT, `publish=${publish}\n`);
+        console.log(
+          `${name}@${version}: ${publish ? 'ready to publish' : 'already published'}`,
+        );
+        JS
