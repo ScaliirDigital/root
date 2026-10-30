@@ -43,7 +43,7 @@
         config = {};
       };
 
-      imageBuilder = import ./images/builder.nix {
+      imageBuilder = import ./container/builder.nix {
         inherit
           nixpkgs
           nix2container
@@ -98,7 +98,7 @@
         image = {
           document = imageBuilder.build {
             package = ./packages/document/package.nix;
-            image = ./images/document.nix;
+            image = ./container/document.nix;
           };
         };
       };
