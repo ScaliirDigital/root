@@ -1,0 +1,19 @@
+[advisories]
+ignore = [
+  # quick-xml < 0.41: quadratic attribute check and unbounded namespace
+  # allocation (denial of service).
+  #
+  # Path: typst-library -> hayagriva -> citationberg -> quick-xml 0.38.
+  # citationberg requires quick-xml ^0.38, so this cannot be resolved with
+  # `cargo update`; it clears with a Typst release that updates citationberg.
+  #
+  # Reachable only through CSL bibliography styles shipped inside a template.
+  # Templates come from authenticated callers (DOCUMENT_TOKEN); render data
+  # (JSON) never reaches the XML parser. Rendering runs in an isolated worker
+  # process, so the impact is limited to that worker. Without DOCUMENT_TOKEN
+  # the service is open and any caller can submit templates.
+  #
+  # Re-check with `cargo tree -i quick-xml` on every Typst update.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]
