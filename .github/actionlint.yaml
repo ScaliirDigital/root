@@ -1,0 +1,5 @@
+paths:
+  .github/workflows/release.yaml:
+    ignore:
+      # GitHub supports queue; remove when actionlint supports it.
+      - '^unexpected key "queue" for "concurrency" section\.'

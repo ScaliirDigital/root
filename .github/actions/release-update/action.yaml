@@ -1,0 +1,48 @@
+name: Update releases
+description: Prepare GitHub releases and update release pull requests
+
+outputs:
+  releases:
+    description: npm releases as a JSON array
+    value: ${{ steps.release.outputs.releases }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare releases
+      id: release
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        gh auth setup-git --hostname github.com
+
+        release_file="$(mktemp "$RUNNER_TEMP/releases.XXXXXX.json")"
+        trap 'rm -f "$release_file"' EXIT
+
+        nix run .#release -- publish --prepare > "$release_file"
+
+        cat "$release_file"
+
+        releases="$(
+          jq -c '[.[] | select(.targets | index("npm"))]' \
+            "$release_file"
+        )"
+
+        echo "releases=${releases}" >> "$GITHUB_OUTPUT"
+
+    - name: Update release pull requests
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        remote="https://github.com/${GH_REPO}.git"
+        main="$(git ls-remote --refs "$remote" refs/heads/main)"
+        main="${main%%$'\t'*}"
+
+        if [[ "$main" != "$GITHUB_SHA" ]]; then
+          echo "A newer main commit will update release pull requests."
+          exit 0
+        fi
+
+        nix run .#release -- create --github
