@@ -1,0 +1,91 @@
+name: Publish container image
+description: Publish missing images and verify their platform digests
+
+inputs:
+  image:
+    description: Registry image name without tag
+    required: true
+  version:
+    description: Image version
+    required: true
+
+outputs:
+  digest:
+    description: Verified image index digest
+    value: ${{ steps.verify.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check existing image
+      id: existing
+      uses: ./.github/actions/container-check # zizmor: ignore[self-repository]
+      with:
+        image: ${{ inputs.image }}
+        version: ${{ inputs.version }}
+
+    - name: Publish missing image
+      if: steps.existing.outputs.exists == 'false'
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        temporary="$(mktemp -d)"
+        manifest="localhost/release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+        cleanup() {
+          buildah manifest rm "$manifest" >/dev/null 2>&1 || true
+          rm -rf "$temporary"
+        }
+
+        trap cleanup EXIT
+
+        buildah manifest create "$manifest"
+
+        for architecture in amd64 arm64; do
+          source="oci-archive:${PWD}/artifacts/image-${architecture}.tar"
+
+          skopeo inspect --raw "$source" \
+            > "$temporary/${architecture}.json"
+
+          digest="$(skopeo manifest-digest "$temporary/${architecture}.json")"
+
+          skopeo copy --preserve-digests \
+            "$source" \
+            "docker://${IMAGE}@${digest}"
+
+          buildah manifest add \
+            --os linux \
+            --arch "$architecture" \
+            "$manifest" \
+            "docker://${IMAGE}@${digest}"
+        done
+
+        buildah manifest push \
+          --all=false \
+          --format oci \
+          "$manifest" \
+          "docker://${IMAGE}:${VERSION}"
+
+    - name: Verify published image
+      id: verify
+      uses: ./.github/actions/container-check # zizmor: ignore[self-repository]
+      with:
+        image: ${{ inputs.image }}
+        version: ${{ inputs.version }}
+
+    - name: Require published image
+      shell: bash
+      env:
+        EXISTS: ${{ steps.verify.outputs.exists }}
+        DIGEST: ${{ steps.verify.outputs.digest }}
+      run: |
+        set -euo pipefail
+
+        if [[ "$EXISTS" != "true" || -z "$DIGEST" ]]; then
+          echo "Published image is missing" >&2
+          exit 1
+        fi

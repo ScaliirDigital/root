@@ -1,0 +1,74 @@
+name: Verify build artifacts
+description: Verify attestations, release metadata and artifact hashes
+
+inputs:
+  package:
+    description: Expected package name
+    required: true
+  version:
+    description: Expected release version
+    required: true
+  sha:
+    description: Expected release commit
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify build artifacts
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        VERSION: ${{ inputs.version }}
+        RELEASE_SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+
+        for architecture in amd64 arm64; do
+          metadata="artifacts/build-${architecture}.json"
+          archive="${PACKAGE}-${VERSION}-linux-${architecture}.tar.gz"
+          image="image-${architecture}.tar"
+
+          for file in "$metadata" "artifacts/$archive" "artifacts/$image"; do
+            test -f "$file"
+
+            gh attestation verify "$file" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow \
+                "${GITHUB_REPOSITORY}/.github/workflows/build.yaml" \
+              --source-digest "$GITHUB_SHA" \
+              --signer-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done
+
+          archive_hash="$(sha256sum "artifacts/$archive")"
+          archive_hash="${archive_hash%% *}"
+
+          image_hash="$(sha256sum "artifacts/$image")"
+          image_hash="${image_hash%% *}"
+
+          jq -e -s \
+            --arg package "$PACKAGE" \
+            --arg version "$VERSION" \
+            --arg architecture "$architecture" \
+            --arg sha "$RELEASE_SHA" \
+            --arg archive "$archive" \
+            --arg archive_hash "$archive_hash" \
+            --arg image "$image" \
+            --arg image_hash "$image_hash" \
+            '
+              . == [{
+                schema: 1,
+                package: $package,
+                version: $version,
+                architecture: $architecture,
+                sha: $sha,
+                artifacts: {
+                  ($archive): $archive_hash,
+                  ($image): $image_hash
+                }
+              }]
+            ' "$metadata" > /dev/null
+
+          echo "Verified ${PACKAGE}@${VERSION} (${architecture}, ${RELEASE_SHA})"
+        done

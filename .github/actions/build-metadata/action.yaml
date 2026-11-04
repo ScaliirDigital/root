@@ -1,0 +1,69 @@
+name: Record build metadata
+description: Bind build artifacts to the checked-out release commit
+
+inputs:
+  package:
+    description: Package name
+    required: true
+  version:
+    description: Release version
+    required: true
+  architecture:
+    description: Target architecture
+    required: true
+  sha:
+    description: Expected release commit
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Record build metadata
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        VERSION: ${{ inputs.version }}
+        ARCHITECTURE: ${{ inputs.architecture }}
+        RELEASE_SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+
+        actual="$(git rev-parse HEAD)"
+
+        if [[ "$actual" != "$RELEASE_SHA" ]]; then
+          echo "Checkout does not match release commit: $RELEASE_SHA" >&2
+          exit 1
+        fi
+
+        archive="${PACKAGE}-${VERSION}-linux-${ARCHITECTURE}.tar.gz"
+        image="image-${ARCHITECTURE}.tar"
+
+        test -f "dist/$archive"
+        test -f "dist/$image"
+
+        archive_hash="$(sha256sum "dist/$archive")"
+        archive_hash="${archive_hash%% *}"
+
+        image_hash="$(sha256sum "dist/$image")"
+        image_hash="${image_hash%% *}"
+
+        jq -n \
+          --arg package "$PACKAGE" \
+          --arg version "$VERSION" \
+          --arg architecture "$ARCHITECTURE" \
+          --arg sha "$actual" \
+          --arg archive "$archive" \
+          --arg archive_hash "$archive_hash" \
+          --arg image "$image" \
+          --arg image_hash "$image_hash" \
+          '{
+            schema: 1,
+            package: $package,
+            version: $version,
+            architecture: $architecture,
+            sha: $sha,
+            artifacts: {
+              ($archive): $archive_hash,
+              ($image): $image_hash
+            }
+          }' > "dist/build-${ARCHITECTURE}.json"

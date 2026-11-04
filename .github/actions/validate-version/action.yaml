@@ -1,0 +1,33 @@
+name: Validate version
+description: Verify that the requested version matches the Nix package version
+
+inputs:
+  package:
+    description: Package name
+    required: true
+  version:
+    description: Expected package version
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate version
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        actual_version="$(
+          nix eval --raw \
+            --no-update-lock-file \
+            ".#${PACKAGE}.version"
+        )"
+
+        if [[ "$VERSION" != "$actual_version" ]]; then
+          echo "Requested version: $VERSION" >&2
+          echo "Package version: $actual_version" >&2
+          exit 1
+        fi
