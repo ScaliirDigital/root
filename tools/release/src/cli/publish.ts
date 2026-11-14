@@ -71,7 +71,6 @@ function verifyRelease(existing: GitHubRelease, release: Release): void {
   if (
     existing.tag_name !== release.tag ||
     existing.name !== `${release.package} ${release.version}` ||
-    existing.draft ||
     existing.prerelease ||
     (existing.body ?? '').trim() !== release.notes.trim()
   ) {
@@ -84,6 +83,7 @@ function verifyRelease(existing: GitHubRelease, release: Release): void {
 async function createGitHubRelease(
   repository: string,
   release: Release,
+  draft: boolean,
 ): Promise<void> {
   const child = Bun.spawn(
     [
@@ -104,7 +104,7 @@ async function createGitHubRelease(
           target_commitish: release.sha,
           name: `${release.package} ${release.version}`,
           body: release.notes,
-          draft: false,
+          draft,
           prerelease: false,
           make_latest: 'false',
         }),
@@ -127,7 +127,53 @@ async function createGitHubRelease(
   }
 }
 
-export async function publish(prepare = false, packageName?: string) {
+async function finalizeGitHubRelease(
+  repository: string,
+  existing: GitHubRelease,
+): Promise<void> {
+  const child = Bun.spawn(
+    [
+      'gh',
+      'api',
+      '--hostname',
+      'github.com',
+      '--method',
+      'PATCH',
+      `repos/${repository}/releases/${existing.id}`,
+      '--input',
+      '-',
+    ],
+    {
+      stdin: Buffer.from(
+        JSON.stringify({
+          draft: false,
+          make_latest: 'false',
+        }),
+      ),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  );
+
+  const [, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(stderr.trim() || 'GitHub release publication failed');
+  }
+}
+
+export async function publish(
+  prepare = false,
+  packageName?: string,
+  draft = false,
+) {
+  if (prepare && draft) {
+    throw new Error('--prepare and --draft cannot be combined');
+  }
   const repository = process.env.GH_REPO ?? process.env.GITHUB_REPOSITORY;
 
   if (!repository || !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repository)) {
@@ -217,7 +263,7 @@ export async function publish(prepare = false, packageName?: string) {
 
     if (!existingRelease) {
       try {
-        await createGitHubRelease(repository, release);
+        await createGitHubRelease(repository, release, draft);
       } catch (error) {
         const concurrent = await findRelease(repository, release.tag);
 
@@ -227,13 +273,39 @@ export async function publish(prepare = false, packageName?: string) {
       }
     }
 
-    const confirmed = await findRelease(repository, release.tag);
+    let confirmed = await findRelease(repository, release.tag);
 
     if (!confirmed) {
       throw new Error(`${release.tag}: GitHub release is missing`);
     }
 
     verifyRelease(confirmed, release);
+
+    if (!draft && confirmed.draft) {
+      try {
+        await finalizeGitHubRelease(repository, confirmed);
+      } catch (error) {
+        const concurrent = await findRelease(repository, release.tag);
+
+        if (!concurrent) throw error;
+
+        verifyRelease(concurrent, release);
+
+        if (concurrent.draft) throw error;
+      }
+
+      confirmed = await findRelease(repository, release.tag);
+
+      if (!confirmed) {
+        throw new Error(`${release.tag}: GitHub release is missing`);
+      }
+
+      verifyRelease(confirmed, release);
+    }
+
+    if (!draft && confirmed.draft) {
+      throw new Error(`${release.tag}: GitHub release is still a draft`);
+    }
 
     if (readTag(root, remote, release.tag) !== release.sha) {
       throw new Error(`${release.tag}: tag changed during publication`);

@@ -11,6 +11,8 @@ type State = {
   failCreate: boolean;
   attempts: number;
   creates: number;
+  failFinalize: boolean;
+  finalizes: number;
   release: {
     id: number;
     tag_name: string;
@@ -109,6 +111,8 @@ test('publish creates, resumes and verifies releases without duplicates', async 
       attempts: 0,
       creates: 0,
       release: null,
+      failFinalize: false,
+      finalizes: 0,
     });
 
     const fakeGh = join(bin, 'gh');
@@ -189,6 +193,25 @@ if (
 
   state.creates += 1;
   response = state.release;
+} else if (
+  method === 'PATCH' &&
+  endpoint === 'repos/release-test/root/releases/1'
+) {
+  if (!state.release) fail('Release is missing');
+
+  const body = JSON.parse(await Bun.stdin.text());
+
+  if (body.draft !== false || body.make_latest !== 'false') {
+    fail('Unexpected release update');
+  }
+
+  if (state.failFinalize) {
+    fail('Simulated release publication failure');
+  }
+
+  state.release.draft = false;
+  state.finalizes += 1;
+  response = state.release;
 } else {
   fail('Unexpected GitHub request: ' + method + ' ' + endpoint);
 }
@@ -258,6 +281,7 @@ console.log(JSON.stringify(response));
     const command = [process.execPath, cli, 'publish'];
     const prepareCommand = [...command, '--prepare'];
     const finalizeCommand = [...command, '--package=document'];
+    const draftCommand = [...command, '--draft', '--package=document'];
     const tagRef = 'refs/tags/document-v0.1.1';
 
     // Kein erkannter Release-PR: keine Veröffentlichung.
@@ -326,6 +350,116 @@ console.log(JSON.stringify(response));
       'expected one matching merged release',
     );
     expect(await readState()).toEqual(afterPrepare);
+
+    // Ungültige Flags dürfen keine Änderungen auslösen.
+    for (const flags of [
+      ['--prepare', '--draft'],
+      ['--draft', '--draft'],
+    ]) {
+      const invalid = execute(root, [...command, ...flags]);
+
+      expect(invalid.code).not.toBe(0);
+      expect(invalid.stderr).toContain('Usage:');
+      expect(await readState()).toEqual(afterPrepare);
+    }
+
+    // Eine fehlgeschlagene Draft-Erstellung bleibt wiederaufnehmbar.
+    await saveState({
+      ...(await readState()),
+      failCreate: true,
+    });
+
+    const failedDraft = execute(root, draftCommand);
+
+    expect(failedDraft.code).not.toBe(0);
+    expect(failedDraft.stderr).toContain('Simulated release creation failure');
+    expect((await readState()).release).toBeNull();
+
+    await saveState({
+      ...(await readState()),
+      failCreate: false,
+    });
+
+    const drafted = JSON.parse(run(root, draftCommand));
+    const afterDraft = await readState();
+
+    expect(drafted).toEqual(prepared);
+    expect(afterDraft.release).toMatchObject({
+      tag_name: 'document-v0.1.1',
+      name: 'document 0.1.1',
+      body: notes,
+      draft: true,
+      prerelease: false,
+    });
+    expect(afterDraft.creates).toBe(1);
+    expect(afterDraft.finalizes).toBe(0);
+
+    // Wiederholung und Vorbereitung veröffentlichen den Draft nicht.
+    expect(JSON.parse(run(root, draftCommand))).toEqual(drafted);
+    expect(JSON.parse(run(root, prepareCommand))).toEqual(prepared);
+    expect(await readState()).toEqual(afterDraft);
+
+    // Geänderte Draft-Notes dürfen nicht veröffentlicht werden.
+    if (!afterDraft.release) {
+      throw new Error('Expected a draft release');
+    }
+
+    await saveState({
+      ...afterDraft,
+      release: {
+        ...afterDraft.release,
+        body: 'Manually changed draft notes',
+      },
+    });
+
+    const conflictingDraft = execute(root, finalizeCommand);
+
+    expect(conflictingDraft.code).not.toBe(0);
+    expect(conflictingDraft.stderr).toContain('does not match');
+    expect((await readState()).release?.draft).toBe(true);
+    expect((await readState()).finalizes).toBe(0);
+
+    // Ein Veröffentlichungsfehler erhält den Draft.
+    await saveState({
+      ...afterDraft,
+      failFinalize: true,
+    });
+
+    const failedFinalize = execute(root, finalizeCommand);
+
+    expect(failedFinalize.code).not.toBe(0);
+    expect(failedFinalize.stderr).toContain(
+      'Simulated release publication failure',
+    );
+    expect((await readState()).release?.draft).toBe(true);
+    expect((await readState()).finalizes).toBe(0);
+
+    await saveState({
+      ...(await readState()),
+      failFinalize: false,
+    });
+
+    expect(JSON.parse(run(root, finalizeCommand))).toEqual(drafted);
+
+    const afterFinalize = await readState();
+
+    expect(afterFinalize.release?.draft).toBe(false);
+    expect(afterFinalize.creates).toBe(1);
+    expect(afterFinalize.finalizes).toBe(1);
+
+    // Öffentliche Releases bleiben bei Wiederholung unverändert.
+    expect(JSON.parse(run(root, draftCommand))).toEqual(drafted);
+    expect(JSON.parse(run(root, finalizeCommand))).toEqual(drafted);
+    expect(await readState()).toEqual(afterFinalize);
+
+    // Den bisherigen direkten Publish-Pfad ebenfalls weiter prüfen.
+    await saveState({
+      ...afterFinalize,
+      release: null,
+      attempts: 0,
+      creates: 0,
+      finalizes: 0,
+    });
 
     // Ein Fehler beim Abschluss lässt den vorbereiteten Release wiederaufnehmbar.
     await saveState({
