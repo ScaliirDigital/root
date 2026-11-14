@@ -76,10 +76,15 @@ Commands that talk to GitHub need `GH_REPO=owner/name`.
 nix run .#release -- plan               # show planned releases as JSON
 nix run .#release -- plan --markdown    # preview the changelog sections
 nix run .#release -- create             # build release branches locally
-nix run .#release -- create --github    # push branches and update release PRs
-nix run .#release -- publish --prepare  # tag merged releases
-nix run .#release -- publish            # create GitHub releases
+nix run .#release -- create --github    # create or update release branches and PRs on GitHub
+nix run .#release -- publish --prepare  # create and verify tags for merged releases
+nix run .#release -- publish --draft    # create or verify draft GitHub releases
+nix run .#release -- publish            # create or finalize GitHub releases
 ```
+
+Use `--package=name` with `publish` or `publish --draft` to select a single
+package. Upload release assets after creating the draft, then run `publish`
+to make it public. `--prepare` and `--draft` cannot be combined.
 
 Add `--github` to `plan` to include authors and links from GitHub.
 

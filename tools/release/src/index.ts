@@ -7,6 +7,7 @@ async function main() {
   const markdown = flags.includes('--markdown');
   const github = flags.includes('--github');
   const prepare = flags.includes('--prepare');
+  const draft = flags.includes('--draft');
 
   const packageFlags = flags.filter((flag) => flag.startsWith('--package='));
   const packageName = packageFlags[0]?.slice('--package='.length);
@@ -21,10 +22,11 @@ async function main() {
           ? flags.every(
               (flag) =>
                 flag === '--prepare' ||
+                flag === '--draft' ||
                 /^--package=[a-z][a-z0-9-]*$/.test(flag),
             ) &&
             packageFlags.length <= 1 &&
-            !(prepare && packageName !== undefined)
+            !(prepare && (draft || packageName !== undefined))
           : false);
 
   if (!valid) {
@@ -34,12 +36,14 @@ async function main() {
         '  release plan [--markdown] [--github]',
         '  release create [--github]',
         '  release publish --prepare',
+        '  release publish --draft [--package=name]',
         '  release publish [--package=name]',
         '',
         '--github and publish require GH_REPO=owner/name.',
         'create --github pushes branches and updates release PRs.',
         'publish --prepare creates and verifies release tags.',
-        'publish creates and verifies GitHub releases after external publishing.',
+        'publish --draft creates and verifies draft GitHub releases.',
+        'publish creates, finalizes and verifies GitHub releases after external publishing.',
       ].join('\n'),
     );
   }
@@ -54,7 +58,7 @@ async function main() {
       break;
 
     case 'publish':
-      await publish(prepare, packageName);
+      await publish(prepare, packageName, draft);
       break;
   }
 }
