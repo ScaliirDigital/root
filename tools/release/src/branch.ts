@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { git } from './git';
+import { git, readCommits } from './git';
 import type { Committer, Entry } from './signed-commit';
 import type { BranchPlan, ReleasePlan } from './types';
 
@@ -146,9 +146,18 @@ export function planBranch(
     );
   }
 
+  const previousBase = marker[3];
+
+  const newCommits = readCommits(
+    previousBase,
+    plan.headSha,
+    plan.package,
+    root,
+  );
+
   let unchanged = false;
 
-  if (message === messageFor(plan, tree)) {
+  if (marker[2] === plan.nextVersion && newCommits.length === 0) {
     const actualPaths = git(
       { cwd: root },
       'diff-tree',
@@ -156,7 +165,7 @@ export function planBranch(
       '--name-only',
       '-r',
       '-z',
-      plan.headSha,
+      previousBase,
       previous,
     )
       .split('\0')
@@ -171,11 +180,15 @@ export function planBranch(
     unchanged =
       actualPaths.join('\0') === expectedPaths.join('\0') &&
       plan.changes.every((change) => {
-        const before = readEntry(root, plan.headSha, change.path);
-        const existing = readEntry(root, previous, change.path);
+        const baseline = readEntry(root, previousBase, change.path);
+        const current = readEntry(root, plan.headSha, change.path);
+        const released = readEntry(root, previous, change.path);
 
         return (
-          existing.content === change.after && existing.mode === before.mode
+          baseline.content === change.before &&
+          baseline.mode === current.mode &&
+          released.content === change.after &&
+          released.mode === current.mode
         );
       });
   }

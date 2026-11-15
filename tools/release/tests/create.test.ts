@@ -395,6 +395,31 @@ console.log(JSON.stringify(response));
     expect(repeated[0].changed).toBe(false);
     expect(repeated[0].pullRequest.action).toBe('unchanged');
 
+    await write(first, 'README.md', '# Updated repository tooling\n');
+
+    git(first, 'add', 'README.md');
+    git(first, 'commit', '--quiet', '-m', 'build(root): update tooling');
+    git(first, 'push', remoteUrl, 'main');
+
+    const newerMainSha = git(first, 'rev-parse', 'HEAD');
+
+    const preserved = JSON.parse(
+      run(first, [process.execPath, cli, 'create', '--github']),
+    );
+
+    expect(preserved[0].sha).toBe(releaseSha);
+    expect(preserved[0].changed).toBe(false);
+    expect(preserved[0].pullRequest.action).toBe('unchanged');
+
+    expect(git(first, 'rev-parse', 'HEAD')).toBe(newerMainSha);
+    expect(git(first, 'show', '-s', '--format=%P', releaseSha)).toBe(mainSha);
+
+    const preservedState = await Bun.file(stateFile).json();
+
+    expect(preservedState.creates).toBe(1);
+    expect(preservedState.updates).toBe(0);
+    expect(preservedState.signed).toBe(1);
+
     git(
       temporary,
       'clone',
