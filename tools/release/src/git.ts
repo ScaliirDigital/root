@@ -54,8 +54,10 @@ export function readCommits(
   base: string,
   head: string,
   scope: string,
+  cwd?: string,
 ): Commit[] {
   const hashes = git(
+    { cwd },
     'log',
     '--no-merges',
     '--reverse',
@@ -68,7 +70,7 @@ export function readCommits(
   const commits: Commit[] = [];
 
   for (const sha of hashes.split('\n')) {
-    const message = git('show', '-s', '--format=%B', sha);
+    const message = git({ cwd }, 'show', '-s', '--format=%B', sha);
     const commit = parseCommit(sha, message, scope);
 
     if (commit) {

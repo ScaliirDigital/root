@@ -139,6 +139,104 @@ test('does not create another commit for an identical plan', async () => {
   expect(second.sha).toBe(first.sha);
 });
 
+for (const scenario of [
+  {
+    name: 'root changes',
+    path: 'README.md',
+    content: '# Updated repository\n',
+    message: 'build(root): update repository tooling',
+  },
+  {
+    name: 'another package release',
+    path: 'packages/astro-bun/package.json',
+    content: '{"version":"0.1.3"}\n',
+    message: 'chore(astro-bun): release 0.1.3',
+  },
+]) {
+  test(`preserves the release commit after ${scenario.name}`, async () => {
+    const first = await prepareBranch(root, {
+      ...plan,
+      branch: planBranch(root, plan),
+    });
+
+    if (!first) throw new Error('Expected a release branch');
+
+    await Bun.write(join(root, scenario.path), scenario.content);
+    g('add', scenario.path);
+    g('commit', '--quiet', '-m', scenario.message);
+
+    const next = {
+      ...plan,
+      headSha: g('rev-parse', 'HEAD'),
+    };
+
+    const branch = planBranch(root, next);
+
+    expect(branch).toEqual({
+      name: 'release/document',
+      action: 'unchanged',
+      expectedSha: first.sha,
+    });
+
+    const result = await prepareBranch(root, {
+      ...next,
+      branch,
+    });
+
+    expect(result).toEqual({
+      branch: first.branch,
+      sha: first.sha,
+      changed: false,
+    });
+
+    expect(g('rev-parse', 'release/document')).toBe(first.sha);
+    expect(g('show', '-s', '--format=%P', first.sha)).toBe(plan.headSha);
+    expect(g('rev-parse', 'HEAD')).toBe(next.headSha);
+    expect(g('status', '--porcelain')).toBe('');
+  });
+}
+
+test('updates release files even without new package commits', async () => {
+  const first = await prepareBranch(root, {
+    ...plan,
+    branch: planBranch(root, plan),
+  });
+
+  if (!first) throw new Error('Expected a release branch');
+
+  await Bun.write(join(root, 'README.md'), '# Updated tooling\n');
+  g('add', 'README.md');
+  g('commit', '--quiet', '-m', 'build(root): update release tooling');
+
+  const next = {
+    ...plan,
+    headSha: g('rev-parse', 'HEAD'),
+    changes: plan.changes?.map((change) =>
+      change.path.endsWith('CHANGELOG.md')
+        ? {
+            ...change,
+            after: `${change.after}\nUpdated release formatting.\n`,
+          }
+        : change,
+    ),
+  };
+
+  const branch = planBranch(root, next);
+
+  expect(branch?.action).toBe('update');
+
+  const result = await prepareBranch(root, {
+    ...next,
+    branch,
+  });
+
+  if (!result) throw new Error('Expected a release branch');
+
+  expect(result.changed).toBe(true);
+  expect(result.sha).not.toBe(first.sha);
+  expect(g('show', '-s', '--format=%P', result.sha)).toBe(next.headSha);
+});
+
 test('updates the existing branch from a newer baseline without another version bump', async () => {
   const planned = {
     ...plan,
