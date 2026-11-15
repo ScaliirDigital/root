@@ -1,0 +1,101 @@
+name: Check container image
+description: Compare a registry image with the expected build manifests
+
+inputs:
+  image:
+    description: Registry image name without tag
+    required: true
+  version:
+    description: Image version
+    required: true
+
+outputs:
+  exists:
+    description: Whether a matching image exists
+    value: ${{ steps.check.outputs.exists }}
+  digest:
+    description: Digest of the matching image index
+    value: ${{ steps.check.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check container image
+      id: check
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        temporary="$(mktemp -d)"
+        trap 'rm -rf "$temporary"' EXIT
+
+        for architecture in amd64 arm64; do
+          skopeo inspect --raw \
+            "oci-archive:${PWD}/artifacts/image-${architecture}.tar" \
+            > "$temporary/${architecture}.json"
+        done
+
+        amd64="$(skopeo manifest-digest "$temporary/amd64.json")"
+        arm64="$(skopeo manifest-digest "$temporary/arm64.json")"
+
+        if skopeo inspect --raw \
+          "docker://${IMAGE}:${VERSION}" \
+          > "$temporary/remote.json" \
+          2> "$temporary/error.txt"; then
+          :
+        else
+          error="$(<"$temporary/error.txt")"
+
+          case "$error" in
+            *"manifest unknown"*|*"MANIFEST_UNKNOWN"*)
+              echo "Image does not exist: ${IMAGE}:${VERSION}"
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            *)
+              cat "$temporary/error.txt" >&2
+              exit 1
+              ;;
+          esac
+        fi
+
+        if ! jq -e \
+          --arg amd64 "$amd64" \
+          --arg arm64 "$arm64" \
+          '
+            .schemaVersion == 2
+            and (
+              .mediaType == "application/vnd.oci.image.index.v1+json"
+              or .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json"
+            )
+            and (
+              [.manifests[] | {
+                os: .platform.os,
+                architecture: .platform.architecture,
+                digest: .digest
+              }] | sort_by(.architecture)
+            ) == [
+              {
+                os: "linux",
+                architecture: "amd64",
+                digest: $amd64
+              },
+              {
+                os: "linux",
+                architecture: "arm64",
+                digest: $arm64
+              }
+            ]
+          ' "$temporary/remote.json" > /dev/null; then
+          echo "Registry image does not match the build artifacts: ${IMAGE}:${VERSION}" >&2
+          exit 1
+        fi
+
+        digest="$(skopeo manifest-digest "$temporary/remote.json")"
+
+        echo "exists=true" >> "$GITHUB_OUTPUT"
+        echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+        echo "Verified ${IMAGE}:${VERSION}@${digest}"

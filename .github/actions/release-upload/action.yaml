@@ -1,0 +1,31 @@
+name: Upload release archives
+description: Upload verified binary archives to a GitHub release
+
+inputs:
+  package:
+    description: Package name
+    required: true
+  version:
+    description: Release version
+    required: true
+  tag:
+    description: Release tag
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Upload binary archives
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        VERSION: ${{ inputs.version }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+
+        for architecture in amd64 arm64; do
+          archive="artifacts/${PACKAGE}-${VERSION}-linux-${architecture}.tar.gz"
+
+          gh release upload "$TAG" "$archive" --clobber
+        done

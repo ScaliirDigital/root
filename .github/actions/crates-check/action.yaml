@@ -1,0 +1,63 @@
+name: Check crates.io release
+description: Verify the release commit and crates.io registry state
+
+inputs:
+  crate:
+    description: Crate name
+    required: true
+  version:
+    description: Expected release version
+    required: true
+  sha:
+    description: Expected release commit
+    required: true
+
+outputs:
+  publish:
+    description: Whether the version needs publication
+    value: ${{ steps.check.outputs.publish }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check release commit
+      shell: bash
+      env:
+        RELEASE_SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+
+        actual="$(git rev-parse HEAD)"
+
+        if [[ "$actual" != "$RELEASE_SHA" ]]; then
+          echo "Checkout does not match release commit: $RELEASE_SHA" >&2
+          exit 1
+        fi
+
+    - name: Check crates.io
+      id: check
+      shell: bash
+      env:
+        CRATE: ${{ inputs.crate }}
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        status="$(
+          curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            --user-agent 'ScaliirDigital/root release (contact@scaliir.digital)' \
+            "https://crates.io/api/v1/crates/${CRATE}/${RELEASE_VERSION}"
+        )"
+
+        case "$status" in
+          200) publish=false ;;
+          404) publish=true ;;
+          *)
+            echo "crates.io returned HTTP ${status}" >&2
+            exit 1
+            ;;
+        esac
+
+        echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+        echo "${CRATE}@${RELEASE_VERSION}: ${publish}"

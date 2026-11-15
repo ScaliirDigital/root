@@ -1,9 +1,15 @@
 name: Update releases
 description: Prepare GitHub releases and update release pull requests
 
+inputs:
+  update-pull-requests:
+    description: Whether to create or update release pull requests
+    required: false
+    default: 'true'
+
 outputs:
   releases:
-    description: npm releases as a JSON array
+    description: Detected releases as a JSON array
     value: ${{ steps.release.outputs.releases }}
 
 runs:
@@ -24,14 +30,12 @@ runs:
 
         cat "$release_file"
 
-        releases="$(
-          jq -c '[.[] | select(.targets | index("npm"))]' \
-            "$release_file"
-        )"
+        releases="$(jq -c '.' "$release_file")"
 
         echo "releases=${releases}" >> "$GITHUB_OUTPUT"
 
     - name: Update release pull requests
+      if: inputs.update-pull-requests == 'true'
       shell: bash
       run: |
         set -euo pipefail

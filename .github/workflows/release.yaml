@@ -1,9 +1,16 @@
+# .github/workflows/release.yaml
 name: Release
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Merged release commit to publish again
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -30,8 +37,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify release commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
 
       - name: Install Nix
         uses: NixOS/nix-installer-action@62c1943b776c509394b550f3f983adc14e9212d6
@@ -52,6 +70,8 @@ jobs:
       - name: Update releases
         id: release
         uses: ./.github/actions/release-update # zizmor: ignore[self-repository]
+        with:
+          update-pull-requests: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
@@ -68,6 +88,8 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      attestations: write
+      packages: write
 
     strategy:
       fail-fast: false
@@ -77,3 +99,5 @@ jobs:
     uses: ./.github/workflows/publish.yaml # zizmor: ignore[self-repository]
     with:
       release: ${{ toJSON(matrix.release) }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

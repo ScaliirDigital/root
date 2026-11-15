@@ -7,6 +7,9 @@ on:
         description: Release metadata as JSON
         required: true
         type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -56,14 +59,112 @@ jobs:
         with:
           package: ${{ fromJSON(inputs.release).path }}
 
+  cargo:
+    name: crates.io
+    if: >-
+      github.repository == 'ScaliirDigital/root' &&
+      contains(fromJSON(inputs.release).targets, 'cargo')
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ fromJSON(inputs.release).sha }}
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: NixOS/nix-installer-action@62c1943b776c509394b550f3f983adc14e9212d6
+        with:
+          installer-version: '2.35.4'
+          extra-conf: |
+            experimental-features = nix-command flakes
+
+      - name: Validate version
+        uses: ./.github/actions/validate-version # zizmor: ignore[self-repository]
+        with:
+          package: ${{ fromJSON(inputs.release).package }}
+          version: ${{ fromJSON(inputs.release).version }}
+
+      - name: Check crates.io release
+        id: check
+        uses: ./.github/actions/crates-check # zizmor: ignore[self-repository]
+        with:
+          crate: ${{ fromJSON(inputs.release).package }}
+          version: ${{ fromJSON(inputs.release).version }}
+          sha: ${{ fromJSON(inputs.release).sha }}
+
+      - name: Publish crate
+        if: steps.check.outputs.publish == 'true'
+        uses: ./.github/actions/crates-publish # zizmor: ignore[self-repository]
+        with:
+          package: ${{ fromJSON(inputs.release).path }}
+
+  build:
+    name: Build ${{ matrix.architecture }}
+    if: >-
+      github.repository == 'ScaliirDigital/root' &&
+      (
+        contains(fromJSON(inputs.release).targets, 'binary') ||
+        toJSON(fromJSON(inputs.release).containers) != '[]'
+      )
+
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+
+    uses: ./.github/workflows/build.yaml # zizmor: ignore[self-repository]
+    with:
+      package: ${{ fromJSON(inputs.release).package }}
+      version: ${{ fromJSON(inputs.release).version }}
+      architecture: ${{ matrix.architecture }}
+      sha: ${{ fromJSON(inputs.release).sha }}
+
+  container:
+    name: Container
+    needs: build
+    if: toJSON(fromJSON(inputs.release).containers) != '[]'
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    uses: ./.github/workflows/container.yaml # zizmor: ignore[self-repository]
+    with:
+      package: ${{ fromJSON(inputs.release).package }}
+      version: ${{ fromJSON(inputs.release).version }}
+      sha: ${{ fromJSON(inputs.release).sha }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   release:
-    name: GitHub Release
-    needs: npm
-    if: needs.npm.result == 'success'
+    name: GitHub
+    needs: [npm, cargo, build, container]
+    if: >-
+      !cancelled() &&
+      github.repository == 'ScaliirDigital/root' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-24.04
 
     permissions:
       contents: write
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
 
     steps:
       - name: Checkout release
@@ -80,10 +181,37 @@ jobs:
           extra-conf: |
             experimental-features = nix-command flakes
 
+      - name: Prepare draft GitHub release
+        uses: ./.github/actions/release-publish # zizmor: ignore[self-repository]
+        with:
+          package: ${{ fromJSON(inputs.release).package }}
+          draft: 'true'
+
+      - name: Download binary archives
+        if: contains(fromJSON(inputs.release).targets, 'binary')
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: build-${{ fromJSON(inputs.release).package }}-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify binary build artifacts
+        if: contains(fromJSON(inputs.release).targets, 'binary')
+        uses: ./.github/actions/build-verify # zizmor: ignore[self-repository]
+        with:
+          package: ${{ fromJSON(inputs.release).package }}
+          version: ${{ fromJSON(inputs.release).version }}
+          sha: ${{ fromJSON(inputs.release).sha }}
+
+      - name: Upload binary archives
+        if: contains(fromJSON(inputs.release).targets, 'binary')
+        uses: ./.github/actions/release-upload # zizmor: ignore[self-repository]
+        with:
+          package: ${{ fromJSON(inputs.release).package }}
+          version: ${{ fromJSON(inputs.release).version }}
+          tag: ${{ fromJSON(inputs.release).tag }}
+
       - name: Publish GitHub release
         uses: ./.github/actions/release-publish # zizmor: ignore[self-repository]
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
         with:
           package: ${{ fromJSON(inputs.release).package }}

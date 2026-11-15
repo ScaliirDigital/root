@@ -1,0 +1,27 @@
+name: Publish crate
+description: Authenticate with crates.io via trusted publishing and publish a crate
+
+inputs:
+  package:
+    description: Package directory relative to the repository root
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Authenticate with crates.io
+      id: auth
+      uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
+
+    - name: Publish crate
+      shell: bash
+      working-directory: ${{ inputs.package }}
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        AWS_LC_SYS_CMAKE_BUILDER: '0'
+      run: |
+        set -euo pipefail
+
+        nix shell --inputs-from "$GITHUB_WORKSPACE" \
+          nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc \
+          --command cargo publish --locked

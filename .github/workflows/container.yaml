@@ -1,0 +1,231 @@
+name: Container
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: Package to publish
+        required: true
+        type: string
+      version:
+        description: Image version
+        required: true
+        type: string
+      sha:
+        description: Release commit SHA
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ inputs.package }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE: ${{ inputs.package }}
+  VERSION: ${{ inputs.version }}
+  DOCKERHUB_NAMESPACE: scaledigital
+
+jobs:
+  verify:
+    name: Verify artifacts
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: build-${{ inputs.package }}-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify build artifacts
+        uses: ./.github/actions/build-verify # zizmor: ignore[self-repository]
+        with:
+          package: ${{ inputs.package }}
+          version: ${{ inputs.version }}
+          sha: ${{ inputs.sha }}
+
+      - name: Validate images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for architecture in amd64 arm64; do
+            skopeo inspect --config "oci-archive:${PWD}/artifacts/image-${architecture}.tar" |
+              jq -e \
+                --arg architecture "$architecture" \
+                --arg version "$VERSION" \
+                '
+                  .os == "linux"
+                  and .architecture == $architecture
+                  and .config.Labels["org.opencontainers.image.version"] == $version
+                '
+          done
+
+  publish:
+    name: Publish to ${{ matrix.registry }}
+    needs: verify
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        registry:
+          - ghcr.io
+          - docker.io
+
+    env:
+      REGISTRY: ${{ matrix.registry }}
+
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: build-${{ inputs.package }}-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare image reference
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$REGISTRY" == "ghcr.io" ]]; then
+            namespace="${GITHUB_REPOSITORY_OWNER,,}"
+          else
+            namespace="$DOCKERHUB_NAMESPACE"
+          fi
+
+          echo "name=${REGISTRY}/${namespace}/${PACKAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ${{ matrix.registry }}
+          username: ${{ matrix.registry == 'ghcr.io' && github.actor || vars.DOCKERHUB_USERNAME }}
+          password: ${{ matrix.registry == 'ghcr.io' && secrets.GITHUB_TOKEN || secrets.DOCKERHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+
+      - name: Publish manifest
+        id: publish
+        uses: ./.github/actions/container-publish # zizmor: ignore[self-repository]
+        with:
+          image: ${{ steps.image.outputs.name }}
+          version: ${{ inputs.version }}
+
+      - name: Attest image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Sign image
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+  confirm:
+    name: Verify ${{ matrix.registry }}
+    needs: publish
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      packages: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        registry:
+          - ghcr.io
+          - docker.io
+
+    env:
+      REGISTRY: ${{ matrix.registry }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Log in to GHCR
+        if: matrix.registry == 'ghcr.io'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+
+      - name: Verify published image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$REGISTRY" == "ghcr.io" ]]; then
+            image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${PACKAGE}"
+          else
+            image="docker.io/${DOCKERHUB_NAMESPACE}/${PACKAGE}"
+          fi
+
+          skopeo inspect --raw "docker://${image}:${VERSION}" > manifest.json
+          digest="$(skopeo manifest-digest manifest.json)"
+
+          echo "${image}:${VERSION}@${digest}"
+
+          jq -e '
+            [.manifests[].platform | "\(.os)/\(.architecture)"] | sort
+              == ["linux/amd64", "linux/arm64"]
+          ' manifest.json
+
+          gh attestation verify "oci://${image}@${digest}" \
+            --bundle-from-oci \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow \
+              "${GITHUB_REPOSITORY}/.github/workflows/container.yaml" \
+            --source-digest "$GITHUB_SHA" \
+            --signer-digest "$GITHUB_SHA" \
+            --deny-self-hosted-runners
+
+          cosign verify \
+            --certificate-identity \
+              "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/container.yaml@${GITHUB_REF}" \
+            --certificate-oidc-issuer \
+              "https://token.actions.githubusercontent.com" \
+            "${image}@${digest}" >/dev/null
