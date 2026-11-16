@@ -77,7 +77,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
 
   publish:
-    name: Publish
+    name: Publish ${{ matrix.release.package }}
     needs: update
     if: >-
       !cancelled() &&
