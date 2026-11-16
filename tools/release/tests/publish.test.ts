@@ -13,6 +13,12 @@ type State = {
   creates: number;
   failFinalize: boolean;
   finalizes: number;
+  hiddenListReads?: number;
+  missingIdReads?: number;
+  staleDraftReads?: number;
+  forbiddenIdReads?: number;
+  loseCreateResponse?: boolean;
+  loseFinalizeResponse?: boolean;
   release: {
     id: number;
     tag_name: string;
@@ -166,7 +172,37 @@ if (
   method === 'GET' &&
   endpoint.startsWith('repos/release-test/root/releases?')
 ) {
-  response = state.release ? [state.release] : [];
+  if (state.release && (state.hiddenListReads ?? 0) > 0) {
+    state.hiddenListReads -= 1;
+    response = [];
+  } else {
+    response = state.release ? [state.release] : [];
+  }
+} else if (
+  method === 'GET' &&
+  endpoint === 'repos/release-test/root/releases/1'
+) {
+  if ((state.forbiddenIdReads ?? 0) > 0) {
+    state.forbiddenIdReads -= 1;
+    await Bun.write(statePath, JSON.stringify(state));
+    fail('gh: Forbidden (HTTP 403)');
+  }
+
+  if (!state.release || (state.missingIdReads ?? 0) > 0) {
+    if ((state.missingIdReads ?? 0) > 0) {
+      state.missingIdReads -= 1;
+    }
+
+    await Bun.write(statePath, JSON.stringify(state));
+    fail('gh: Not Found (HTTP 404)');
+  }
+
+  if ((state.staleDraftReads ?? 0) > 0) {
+    state.staleDraftReads -= 1;
+    response = { ...state.release, draft: true };
+  } else {
+    response = state.release;
+  }
 } else if (
   method === 'POST' &&
   endpoint === 'repos/release-test/root/releases'
@@ -192,6 +228,12 @@ if (
   };
 
   state.creates += 1;
+
+  if (state.loseCreateResponse) {
+    await Bun.write(statePath, JSON.stringify(state));
+    fail('Simulated lost creation response');
+  }
+
   response = state.release;
 } else if (
   method === 'PATCH' &&
@@ -211,6 +253,12 @@ if (
 
   state.release.draft = false;
   state.finalizes += 1;
+
+  if (state.loseFinalizeResponse) {
+    await Bun.write(statePath, JSON.stringify(state));
+    fail('Simulated lost publication response');
+  }
+
   response = state.release;
 } else {
   fail('Unexpected GitHub request: ' + method + ' ' + endpoint);
@@ -284,7 +332,7 @@ console.log(JSON.stringify(response));
     const draftCommand = [...command, '--draft', '--package=document'];
     const tagRef = 'refs/tags/document-v0.1.1';
 
-    // Kein erkannter Release-PR: keine Veröffentlichung.
+    // Do not publish without a recognized merged release PR.
     expect(JSON.parse(run(root, command))).toEqual([]);
     expect(git('ls-remote', '--refs', remoteUrl, tagRef)).toBe('');
     expect((await readState()).attempts).toBe(0);
@@ -294,7 +342,7 @@ console.log(JSON.stringify(response));
       merged: true,
     });
 
-    // Ein falscher vorhandener Tag muss unverändert bleiben.
+    // Preserve an existing tag that points to a different commit.
     git('push', remoteUrl, `${baseSha}:${tagRef}`);
 
     const conflictingTag = execute(root, command);
@@ -308,7 +356,7 @@ console.log(JSON.stringify(response));
 
     git('push', remoteUrl, `:${tagRef}`);
 
-    // Ohne Vorbereitung darf der Abschluss keinen Tag oder Release erstellen.
+    // Finalization must not create a missing release tag.
     const unprepared = execute(root, finalizeCommand);
 
     expect(unprepared.code).not.toBe(0);
@@ -316,7 +364,7 @@ console.log(JSON.stringify(response));
     expect(git('ls-remote', '--refs', remoteUrl, tagRef)).toBe('');
     expect((await readState()).attempts).toBe(0);
 
-    // Vorbereitung erstellt ausschließlich den Tag.
+    // Preparation creates only the tag.
     const prepared = JSON.parse(run(root, prepareCommand));
 
     expect(prepared).toHaveLength(1);
@@ -338,11 +386,11 @@ console.log(JSON.stringify(response));
     expect(afterPrepare.attempts).toBe(0);
     expect(afterPrepare.creates).toBe(0);
 
-    // Wiederholte Vorbereitung erstellt ebenfalls keinen GitHub Release.
+    // Repeated preparation must not create a GitHub release.
     expect(JSON.parse(run(root, prepareCommand))).toEqual(prepared);
     expect(await readState()).toEqual(afterPrepare);
 
-    // Ein anderes Paket darf nicht versehentlich abgeschlossen werden.
+    // Reject a package that does not match the detected release.
     const wrongPackage = execute(root, [...command, '--package=astro-bun']);
 
     expect(wrongPackage.code).not.toBe(0);
@@ -351,7 +399,7 @@ console.log(JSON.stringify(response));
     );
     expect(await readState()).toEqual(afterPrepare);
 
-    // Ungültige Flags dürfen keine Änderungen auslösen.
+    // Invalid flags must not modify release state.
     for (const flags of [
       ['--prepare', '--draft'],
       ['--draft', '--draft'],
@@ -363,7 +411,7 @@ console.log(JSON.stringify(response));
       expect(await readState()).toEqual(afterPrepare);
     }
 
-    // Eine fehlgeschlagene Draft-Erstellung bleibt wiederaufnehmbar.
+    // A failed draft creation remains resumable.
     await saveState({
       ...(await readState()),
       failCreate: true,
@@ -394,12 +442,12 @@ console.log(JSON.stringify(response));
     expect(afterDraft.creates).toBe(1);
     expect(afterDraft.finalizes).toBe(0);
 
-    // Wiederholung und Vorbereitung veröffentlichen den Draft nicht.
+    // Repetition and preparation must not publish an existing draft.
     expect(JSON.parse(run(root, draftCommand))).toEqual(drafted);
     expect(JSON.parse(run(root, prepareCommand))).toEqual(prepared);
     expect(await readState()).toEqual(afterDraft);
 
-    // Geänderte Draft-Notes dürfen nicht veröffentlicht werden.
+    // Reject modified draft notes before publishing.
     if (!afterDraft.release) {
       throw new Error('Expected a draft release');
     }
@@ -419,7 +467,7 @@ console.log(JSON.stringify(response));
     expect((await readState()).release?.draft).toBe(true);
     expect((await readState()).finalizes).toBe(0);
 
-    // Ein Veröffentlichungsfehler erhält den Draft.
+    // A publication failure preserves the draft.
     await saveState({
       ...afterDraft,
       failFinalize: true,
@@ -447,12 +495,12 @@ console.log(JSON.stringify(response));
     expect(afterFinalize.creates).toBe(1);
     expect(afterFinalize.finalizes).toBe(1);
 
-    // Öffentliche Releases bleiben bei Wiederholung unverändert.
+    // Repeated commands must not modify published releases.
     expect(JSON.parse(run(root, draftCommand))).toEqual(drafted);
     expect(JSON.parse(run(root, finalizeCommand))).toEqual(drafted);
     expect(await readState()).toEqual(afterFinalize);
 
-    // Den bisherigen direkten Publish-Pfad ebenfalls weiter prüfen.
+    // Preserve support for direct publication without a draft.
     await saveState({
       ...afterFinalize,
       release: null,
@@ -461,7 +509,7 @@ console.log(JSON.stringify(response));
       finalizes: 0,
     });
 
-    // Ein Fehler beim Abschluss lässt den vorbereiteten Release wiederaufnehmbar.
+    // A failed publication preserves the prepared tag for a retry.
     await saveState({
       ...(await readState()),
       failCreate: true,
@@ -482,6 +530,7 @@ console.log(JSON.stringify(response));
     });
 
     const published = JSON.parse(run(root, finalizeCommand));
+
     expect(published).toEqual([
       {
         package: 'document',
@@ -497,7 +546,6 @@ console.log(JSON.stringify(response));
     ]);
 
     expect((await readState()).creates).toBe(1);
-
     expect(git('rev-parse', 'document-v0.1.1^{commit}')).toBe(releaseSha);
 
     const nextPlans = JSON.parse(run(root, [process.execPath, cli, 'plan']));
@@ -517,13 +565,13 @@ console.log(JSON.stringify(response));
       [],
     );
 
-    // Wiederholung liefert denselben Auftrag ohne weitere Erstellung.
+    // Repetition returns the same release without another creation.
     const beforeRepeat = await readState();
 
     expect(JSON.parse(run(root, finalizeCommand))).toEqual(published);
     expect(await readState()).toEqual(beforeRepeat);
 
-    // Wiederholung auch aus einem frischen Checkout.
+    // Repetition also works from a fresh checkout.
     const checkout = join(temporary, 'checkout');
 
     run(temporary, [
@@ -539,7 +587,151 @@ console.log(JSON.stringify(response));
     expect(JSON.parse(run(checkout, finalizeCommand))).toEqual(published);
     expect(await readState()).toEqual(beforeRepeat);
 
-    // Abweichende Notes dürfen nicht still überschrieben werden.
+    // Propagate authorization errors without retrying the ID request.
+    const beforeRecoveryTests = await readState();
+
+    // Use the successful POST response without additional list or ID reads.
+    await saveState({
+      ...beforeRecoveryTests,
+      release: null,
+      attempts: 0,
+      creates: 0,
+      finalizes: 0,
+      hiddenListReads: 2,
+      missingIdReads: 2,
+    });
+
+    expect(JSON.parse(run(root, draftCommand))).toEqual(drafted);
+
+    const afterCreation = await readState();
+
+    expect(afterCreation.release?.draft).toBe(true);
+    expect(afterCreation.attempts).toBe(1);
+    expect(afterCreation.creates).toBe(1);
+    expect(afterCreation.finalizes).toBe(0);
+    expect(afterCreation.hiddenListReads).toBe(2);
+    expect(afterCreation.missingIdReads).toBe(2);
+
+    // Use the successful PATCH response without additional ID reads.
+    await saveState({
+      ...afterCreation,
+      hiddenListReads: 0,
+      staleDraftReads: 2,
+    });
+
+    expect(JSON.parse(run(root, finalizeCommand))).toEqual(drafted);
+
+    const afterPublication = await readState();
+
+    expect(afterPublication.release?.draft).toBe(false);
+    expect(afterPublication.attempts).toBe(1);
+    expect(afterPublication.creates).toBe(1);
+    expect(afterPublication.finalizes).toBe(1);
+    expect(afterPublication.missingIdReads).toBe(2);
+    expect(afterPublication.staleDraftReads).toBe(2);
+
+    // Recover a successful creation whose response was lost.
+    await saveState({
+      ...beforeRecoveryTests,
+      release: null,
+      attempts: 0,
+      creates: 0,
+      finalizes: 0,
+      loseCreateResponse: true,
+      hiddenListReads: 2,
+    });
+
+    expect(JSON.parse(run(root, draftCommand))).toEqual(drafted);
+
+    const afterLostCreation = await readState();
+
+    expect(afterLostCreation.release?.draft).toBe(true);
+    expect(afterLostCreation.attempts).toBe(1);
+    expect(afterLostCreation.creates).toBe(1);
+    expect(afterLostCreation.finalizes).toBe(0);
+    expect(afterLostCreation.hiddenListReads).toBe(0);
+
+    // Recover a successful publication whose response was lost.
+    await saveState({
+      ...afterLostCreation,
+      loseCreateResponse: false,
+      loseFinalizeResponse: true,
+      missingIdReads: 1,
+      staleDraftReads: 1,
+    });
+
+    expect(JSON.parse(run(root, finalizeCommand))).toEqual(drafted);
+
+    const afterLostPublication = await readState();
+
+    expect(afterLostPublication.release?.draft).toBe(false);
+    expect(afterLostPublication.attempts).toBe(1);
+    expect(afterLostPublication.creates).toBe(1);
+    expect(afterLostPublication.finalizes).toBe(1);
+    expect(afterLostPublication.missingIdReads).toBe(0);
+    expect(afterLostPublication.staleDraftReads).toBe(0);
+
+    // Repetition must not issue another creation or publication request.
+    expect(JSON.parse(run(root, draftCommand))).toEqual(drafted);
+    expect(JSON.parse(run(root, finalizeCommand))).toEqual(drafted);
+    expect(await readState()).toEqual(afterLostPublication);
+
+    // Propagate authorization errors during recovery without retrying them.
+    await saveState({
+      ...afterLostCreation,
+      loseCreateResponse: false,
+      loseFinalizeResponse: true,
+      forbiddenIdReads: 2,
+    });
+
+    const forbidden = execute(root, finalizeCommand);
+
+    expect(forbidden.code).not.toBe(0);
+    expect(forbidden.stderr).toContain('HTTP 403');
+
+    const afterForbidden = await readState();
+
+    expect(afterForbidden.forbiddenIdReads).toBe(1);
+    expect(afterForbidden.release?.draft).toBe(false);
+    expect(afterForbidden.attempts).toBe(1);
+    expect(afterForbidden.creates).toBe(1);
+    expect(afterForbidden.finalizes).toBe(1);
+
+    // Exhaust recovery retries without repeating a successful mutation.
+    await saveState({
+      ...afterLostCreation,
+      loseCreateResponse: false,
+      loseFinalizeResponse: true,
+      missingIdReads: 100,
+    });
+
+    const unrecovered = execute(root, finalizeCommand);
+
+    expect(unrecovered.code).not.toBe(0);
+    expect(unrecovered.stderr).toContain('Simulated lost publication response');
+
+    const afterUnrecovered = await readState();
+
+    expect(afterUnrecovered.release?.draft).toBe(false);
+    expect(afterUnrecovered.attempts).toBe(1);
+    expect(afterUnrecovered.creates).toBe(1);
+    expect(afterUnrecovered.finalizes).toBe(1);
+    expect(afterUnrecovered.missingIdReads).toBe(95);
+
+    // A subsequent run recognizes the publication without another mutation.
+    await saveState({
+      ...afterUnrecovered,
+      missingIdReads: 0,
+    });
+
+    const beforeResume = await readState();
+
+    expect(JSON.parse(run(root, finalizeCommand))).toEqual(drafted);
+    expect(await readState()).toEqual(beforeResume);
+
+    await saveState(beforeRecoveryTests);
+
+    // Conflicting notes must not be silently overwritten.
     const modified = await readState();
 
     if (!modified.release) {
@@ -562,4 +754,4 @@ console.log(JSON.stringify(response));
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60_000);
