@@ -1,5 +1,5 @@
 name: Upload release archives
-description: Upload verified binary archives to a GitHub release
+description: Generate SHA256SUMS and upload verified binary archives to a GitHub release
 
 inputs:
   package:
@@ -15,8 +15,9 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Upload binary archives
+    - name: Generate checksums and upload release assets
       shell: bash
+      working-directory: artifacts
       env:
         PACKAGE: ${{ inputs.package }}
         VERSION: ${{ inputs.version }}
@@ -24,8 +25,11 @@ runs:
       run: |
         set -euo pipefail
 
-        for architecture in amd64 arm64; do
-          archive="artifacts/${PACKAGE}-${VERSION}-linux-${architecture}.tar.gz"
+        archives=(
+          "${PACKAGE}-${VERSION}-linux-amd64.tar.gz"
+          "${PACKAGE}-${VERSION}-linux-arm64.tar.gz"
+        )
 
-          gh release upload "$TAG" "$archive" --clobber
-        done
+        sha256sum -- "${archives[@]}" > SHA256SUMS
+
+        gh release upload "$TAG" "${archives[@]}" SHA256SUMS --clobber
