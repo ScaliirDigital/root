@@ -68,10 +68,15 @@ function readTag(root: string, remote: string, tag: string): string | null {
 }
 
 function verifyRelease(existing: GitHubRelease, release: Release): void {
+  if (!Number.isSafeInteger(existing.id) || existing.id <= 0) {
+    throw new Error(`${release.tag}: invalid GitHub release ID`);
+  }
+
   if (
     existing.tag_name !== release.tag ||
     existing.name !== `${release.package} ${release.version}` ||
-    existing.prerelease ||
+    typeof existing.draft !== 'boolean' ||
+    existing.prerelease !== false ||
     (existing.body ?? '').trim() !== release.notes.trim()
   ) {
     throw new Error(
@@ -84,86 +89,78 @@ async function createGitHubRelease(
   repository: string,
   release: Release,
   draft: boolean,
-): Promise<void> {
-  const child = Bun.spawn(
-    [
-      'gh',
-      'api',
-      '--hostname',
-      'github.com',
-      '--method',
-      'POST',
-      `repos/${repository}/releases`,
-      '--input',
-      '-',
-    ],
-    {
-      stdin: Buffer.from(
-        JSON.stringify({
-          tag_name: release.tag,
-          target_commitish: release.sha,
-          name: `${release.package} ${release.version}`,
-          body: release.notes,
-          draft,
-          prerelease: false,
-          make_latest: 'false',
-        }),
-      ),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    },
-  );
-
-  const [, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-
-  if (exitCode !== 0) {
-    throw new Error(
-      stderr.trim() || `${release.tag}: GitHub release creation failed`,
-    );
-  }
+): Promise<GitHubRelease> {
+  return (await githubApi(`repos/${repository}/releases`, 'POST', {
+    tag_name: release.tag,
+    target_commitish: release.sha,
+    name: `${release.package} ${release.version}`,
+    body: release.notes,
+    draft,
+    prerelease: false,
+    make_latest: 'false',
+  })) as GitHubRelease;
 }
 
 async function finalizeGitHubRelease(
   repository: string,
   existing: GitHubRelease,
-): Promise<void> {
-  const child = Bun.spawn(
-    [
-      'gh',
-      'api',
-      '--hostname',
-      'github.com',
-      '--method',
-      'PATCH',
-      `repos/${repository}/releases/${existing.id}`,
-      '--input',
-      '-',
-    ],
+): Promise<GitHubRelease> {
+  return (await githubApi(
+    `repos/${repository}/releases/${existing.id}`,
+    'PATCH',
     {
-      stdin: Buffer.from(
-        JSON.stringify({
-          draft: false,
-          make_latest: 'false',
-        }),
-      ),
-      stdout: 'pipe',
-      stderr: 'pipe',
+      draft: false,
+      make_latest: 'false',
     },
-  );
+  )) as GitHubRelease;
+}
 
-  const [, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
+async function confirmRelease(
+  repository: string,
+  release: Release,
+  id: number | undefined,
+  requirePublished: boolean,
+): Promise<GitHubRelease | undefined> {
+  for (const delay of [0, 200, 500, 1_000, 2_000]) {
+    if (delay > 0) {
+      await Bun.sleep(delay);
+    }
 
-  if (exitCode !== 0) {
-    throw new Error(stderr.trim() || 'GitHub release publication failed');
+    let existing: GitHubRelease | undefined;
+
+    if (id === undefined) {
+      existing = await findRelease(repository, release.tag);
+    } else {
+      try {
+        existing = (await githubApi(
+          `repos/${repository}/releases/${id}`,
+        )) as GitHubRelease;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        // Retry a temporarily missing release, but propagate other API errors.
+        if (!/\(HTTP 404\)/.test(message)) {
+          throw error;
+        }
+
+        continue;
+      }
+    }
+
+    if (!existing) continue;
+
+    verifyRelease(existing, release);
+
+    if (id !== undefined && existing.id !== id) {
+      throw new Error(`${release.tag}: GitHub release ID changed`);
+    }
+
+    if (!requirePublished || !existing.draft) {
+      return existing;
+    }
   }
+
+  return undefined;
 }
 
 export async function publish(
@@ -174,6 +171,7 @@ export async function publish(
   if (prepare && draft) {
     throw new Error('--prepare and --draft cannot be combined');
   }
+
   const repository = process.env.GH_REPO ?? process.env.GITHUB_REPOSITORY;
 
   if (!repository || !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repository)) {
@@ -261,49 +259,50 @@ export async function publish(
 
     if (prepare) continue;
 
-    if (!existingRelease) {
+    let current = existingRelease;
+
+    if (!current) {
       try {
-        await createGitHubRelease(repository, release, draft);
+        current = await createGitHubRelease(repository, release, draft);
       } catch (error) {
-        const concurrent = await findRelease(repository, release.tag);
+        // Recover an uncertain POST result without repeating the mutation.
+        const recovered = await confirmRelease(
+          repository,
+          release,
+          undefined,
+          false,
+        );
 
-        if (!concurrent) throw error;
+        if (!recovered) throw error;
 
-        verifyRelease(concurrent, release);
+        current = recovered;
       }
     }
 
-    let confirmed = await findRelease(repository, release.tag);
+    verifyRelease(current, release);
 
-    if (!confirmed) {
-      throw new Error(`${release.tag}: GitHub release is missing`);
-    }
+    if (!draft && current.draft) {
+      const id = current.id;
 
-    verifyRelease(confirmed, release);
-
-    if (!draft && confirmed.draft) {
       try {
-        await finalizeGitHubRelease(repository, confirmed);
+        current = await finalizeGitHubRelease(repository, current);
       } catch (error) {
-        const concurrent = await findRelease(repository, release.tag);
+        // Recover an uncertain PATCH result without repeating the mutation.
+        const recovered = await confirmRelease(repository, release, id, true);
 
-        if (!concurrent) throw error;
+        if (!recovered) throw error;
 
-        verifyRelease(concurrent, release);
-
-        if (concurrent.draft) throw error;
+        current = recovered;
       }
 
-      confirmed = await findRelease(repository, release.tag);
+      verifyRelease(current, release);
 
-      if (!confirmed) {
-        throw new Error(`${release.tag}: GitHub release is missing`);
+      if (current.id !== id) {
+        throw new Error(`${release.tag}: GitHub release ID changed`);
       }
-
-      verifyRelease(confirmed, release);
     }
 
-    if (!draft && confirmed.draft) {
+    if (!draft && current.draft) {
       throw new Error(`${release.tag}: GitHub release is still a draft`);
     }
 
